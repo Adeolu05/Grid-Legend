@@ -1,0 +1,6 @@
+{
+  "name": "RACERZ: GRID LEGENDS",
+  "description": "An intense, stylised anime cyberpunk racing game. Choose your legendary racer, speed through neon dystopian tracks, boost, drift, and leave your mark permanently on the grid.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

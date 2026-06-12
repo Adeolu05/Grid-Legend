@@ -1,0 +1,108 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-orbitron: "Orbitron", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-brand-midnight: #050508;
+  --color-brand-deepspace: #0d0d1e;
+  --color-singularity: #00D4FF;
+  --color-cyberpink: #ff007f;
+  --color-gridblue: #005a9c;
+  --color-neon-yellow: #e2f413;
+  --color-neon-cyan: #00ffcc;
+  
+  --animate-pulse-glow: pulseGlow 1.5s infinite alternate;
+  --animate-scanline: scanline 8s linear infinite;
+  --animate-speedlines: speedlines 0.5s linear infinite;
+}
+
+@keyframes pulseGlow {
+  0% {
+    box-shadow: 0 0 10px rgba(0, 212, 255, 0.4), 0 0 20px rgba(0, 212, 255, 0.2);
+  }
+  100% {
+    box-shadow: 0 0 25px rgba(0, 212, 255, 0.8), 0 0 45px rgba(0, 212, 255, 0.4);
+  }
+}
+
+@keyframes scanline {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes speedlines {
+  0% {
+    background-position: 0px 0px;
+  }
+  100% {
+    background-position: 0px 400px;
+  }
+}
+
+/* Base resets & global scroll bar hides for full-screen immersive play */
+* {
+  box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body, #root {
+  margin: 0;
+  padding: 0;
+  background-color: #050508;
+  color: #f1f1f5;
+  font-family: var(--font-sans);
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Glassmorphism Classes */
+.glass-panel {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-panel-heavy {
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  background: rgba(5, 5, 12, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.neon-border-cyan {
+  border: 1px solid rgba(0, 212, 255, 0.4);
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.2);
+}
+
+.neon-border-pink {
+  border: 1px solid rgba(255, 0, 127, 0.4);
+  box-shadow: 0 0 10px rgba(255, 0, 127, 0.2);
+}
+
+/* Custom styled scrollbars inside dialogs/bento containers if needed */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 212, 255, 0.3);
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 212, 255, 0.6);
+}
+
