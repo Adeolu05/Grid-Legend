@@ -24,6 +24,8 @@ const DEFAULT_SAVE_DATA: SaveData = {
   unlockedTracks: ["downtown"], // Highway triggers at Level 2, rooftops at Level 3
   storyProgress: 0, // index of next story race
   bestEndlessScore: 0,
+  unlockedHelmets: ["standard"],
+  selectedHelmet: "standard",
 };
 
 export default function App() {
@@ -58,21 +60,32 @@ export default function App() {
         const lvl = parsed.level || 1;
         let racers = [...parsed.unlockedRacers];
         let tracks = [...parsed.unlockedTracks];
+        let helmets = parsed.unlockedHelmets ? [...parsed.unlockedHelmets] : ["standard"];
+        let selectedHelmet = parsed.selectedHelmet || "standard";
 
         if (lvl >= 2 && !tracks.includes("highway")) {
           tracks.push("highway");
+        }
+        if (lvl >= 2 && !helmets.includes("neon")) {
+          helmets.push("neon");
         }
         if (lvl >= 3) {
           if (!tracks.includes("rooftops")) tracks.push("rooftops");
           ["kira", "mako", "phoenix"].forEach((id) => {
             if (!racers.includes(id)) racers.push(id);
           });
+          if (!helmets.includes("volt")) helmets.push("volt");
+        }
+        if (lvl >= 4 && !helmets.includes("apex")) {
+          helmets.push("apex");
         }
 
         setSaveData({
           ...parsed,
           unlockedRacers: Array.from(new Set(racers)),
           unlockedTracks: Array.from(new Set(tracks)),
+          unlockedHelmets: Array.from(new Set(helmets)),
+          selectedHelmet,
         });
       }
     } catch (e) {
@@ -85,16 +98,32 @@ export default function App() {
     setSaveData((prev) => {
       const merged = { ...prev, ...update };
       
+      const lvl = merged.level || 1;
+      let racers = merged.unlockedRacers ? [...merged.unlockedRacers] : ["zenith"];
+      let tracks = merged.unlockedTracks ? [...merged.unlockedTracks] : ["downtown"];
+      let helmets = merged.unlockedHelmets ? [...merged.unlockedHelmets] : ["standard"];
+
       // Auto-unlock validation
-      if (merged.level >= 2 && !merged.unlockedTracks.includes("highway")) {
+      if (lvl >= 2 && !tracks.includes("highway")) {
         merged.unlockedTracks.push("highway");
       }
-      if (merged.level >= 3) {
+      if (lvl >= 2 && !helmets.includes("neon")) {
+        helmets.push("neon");
+      }
+      if (lvl >= 3) {
         if (!merged.unlockedTracks.includes("rooftops")) merged.unlockedTracks.push("rooftops");
         ["kira", "mako", "phoenix"].forEach((id) => {
-          if (!merged.unlockedRacers.includes(id)) merged.unlockedRacers.push(id);
+          if (!racers.includes(id)) racers.push(id);
         });
+        if (!helmets.includes("volt")) helmets.push("volt");
       }
+      if (lvl >= 4 && !helmets.includes("apex")) {
+        helmets.push("apex");
+      }
+
+      merged.unlockedRacers = Array.from(new Set(racers));
+      merged.unlockedTracks = Array.from(new Set(tracks));
+      merged.unlockedHelmets = Array.from(new Set(helmets));
 
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(merged));
       return merged;
@@ -294,31 +323,37 @@ export default function App() {
       {screen === "SPLASH" && (
         <div 
           onClick={handleProceedFromSplash}
-          className="absolute inset-0 z-50 flex flex-col justify-center items-center bg-[#050508] text-zinc-100 overflow-hidden cursor-pointer"
+          className="absolute inset-0 z-50 flex flex-col justify-center items-center text-zinc-100 overflow-hidden cursor-pointer bg-cover bg-center bg-no-repeat"
+          style={{ backgroundImage: 'url("/images/splash_cockpit.png")' }}
         >
-          {/* Subtle atmosphere background */}
-          <div className="absolute inset-0 bg-[#00D4FF]/[0.01] pointer-events-none" />
+          {/* Futuristic ambient dark overlay */}
+          <div className="absolute inset-0 bg-gradient-to-t from-brand-midnight via-brand-midnight/70 to-transparent pointer-events-none" />
+          <div className="absolute inset-0 bg-black/40 pointer-events-none" />
 
           {/* Clean, spacious typography layout and prompt */}
-          <div className="flex flex-col items-center max-w-sm text-center relative z-10 space-y-6">
-            <div className="space-y-1">
-              <span className="font-mono text-[9px] tracking-widest text-zinc-500 font-bold uppercase">
-                Racerz / Grid
+          <div className="flex flex-col items-center max-w-md text-center relative z-10 space-y-8 p-6 glass-panel-heavy rounded-3xl border-white/10 shadow-[0_25px_60px_rgba(0,0,0,0.8)]">
+            <div className="space-y-4 flex flex-col items-center">
+              <span className="font-mono text-[9px] tracking-widest text-[#00D4FF] font-black uppercase border border-[#00D4FF]/30 px-3.5 py-1 rounded-full bg-[#00D4FF]/10 shadow-[0_0_15px_rgba(0,212,255,0.2)]">
+                An Unofficial Racerz Fan Experience
               </span>
-              <h1 className="font-sans font-semibold text-3xl tracking-tight text-white leading-none">
-                Grid Legends
+              <h1 className="font-orbitron font-black text-4xl sm:text-5xl tracking-tighter text-white leading-none uppercase glow-cyan-sm">
+                RACERZ 3D
+                <span className="block text-xs font-mono tracking-[0.4em] text-zinc-400 mt-2 font-light">GRID LEGENDS</span>
               </h1>
             </div>
 
-            <p className="text-xs text-zinc-400 font-sans font-light leading-relaxed max-w-[280px]">
-              The galactic race has already begun. Tap the console to join.
+            <p className="text-xs text-zinc-300 font-sans font-light leading-relaxed max-w-[280px]">
+              The galactic neon race has begun. Tap anywhere or press the console below to join.
             </p>
 
             <button
-              onClick={handleProceedFromSplash}
-              className="px-8 py-3 bg-white text-zinc-950 font-sans font-medium text-xs rounded-xl transition-all hover:bg-zinc-200"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleProceedFromSplash();
+              }}
+              className="px-8 py-3.5 bg-white text-zinc-950 font-orbitron font-bold text-xs rounded-xl tracking-wider transition-all hover:bg-zinc-200 hover:scale-105 active:scale-95 shadow-[0_10px_20px_rgba(255,255,255,0.15)]"
             >
-              Enter Game
+              LAUNCH CONSOLE
             </button>
           </div>
         </div>
@@ -328,6 +363,7 @@ export default function App() {
       {screen === "MAIN_MENU" && (
         <Lobby
           saveData={saveData}
+          activeRacerId={activeRacerId}
           onStartEndless={handleLaunchEndless}
           onStartStory={() => { setScreen("CHAPTER_SELECT"); audio.playClick(); }}
           onEnterCharacterSelect={() => { setScreen("CHARACTER_SELECT"); audio.playClick(); }}
@@ -341,6 +377,7 @@ export default function App() {
           saveData={saveData}
           activeRacerId={activeRacerId}
           onSelect={handleSelectPilot}
+          onSelectHelmet={(helmetId) => handleSaveDataUpdate({ selectedHelmet: helmetId })}
           onBack={() => setScreen("MAIN_MENU")}
         />
       )}
@@ -370,6 +407,7 @@ export default function App() {
           rivalRacer={opponentRacerProfile}
           track={activeTrack}
           isEndless={isGameplayEndless}
+          selectedHelmet={saveData.selectedHelmet}
           onRaceComplete={handleRaceComplete}
           onExit={() => { 
             setScreen("MAIN_MENU"); 

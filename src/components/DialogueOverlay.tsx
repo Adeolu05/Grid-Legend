@@ -60,16 +60,32 @@ export default function DialogueOverlay({
       {/* Narrative Dialogue Body (Center focus) */}
       <div className="w-full max-w-2xl mx-auto flex flex-col items-center justify-center my-auto z-10 space-y-8 animate-fade-in">
         
-        {/* Simple geometric outline portrait */}
-        <div className="w-16 h-16 rounded-full border border-zinc-800 flex items-center justify-center relative bg-black/40">
+        {/* Character Portrait */}
+        <div className="w-24 h-24 rounded-2xl border border-zinc-800 overflow-hidden relative bg-black/40 shadow-[0_15px_30px_rgba(0,0,0,0.5)]">
           <div 
-            className="w-1.5 h-1.5 rounded-full absolute top-1 right-1"
+            className="w-2.5 h-2.5 rounded-full absolute top-2 right-2 z-10 shadow-lg animate-pulse"
             style={{ backgroundColor: speakerColor }}
           />
-          <svg viewBox="0 0 100 100" className="w-8 h-8 opacity-40">
-            <ellipse cx="50" cy="50" rx="35" ry="35" fill="none" stroke="#fff" strokeWidth="1.5" />
-            <path d="M 30,70 Q 50,55 70,70" fill="none" stroke="#fff" strokeWidth="1.5" />
-          </svg>
+          {currentNode.speaker === "KIRA" || currentNode.speaker === "THE COURIER" ? (
+            <img 
+              src="/images/character_girl.png" 
+              alt="Speaker" 
+              className="w-full h-full object-cover object-top" 
+            />
+          ) : currentNode.speaker === "YOU" && playerRacer.id === "kira" ? (
+            <img 
+              src="/images/character_girl.png" 
+              alt="Speaker" 
+              className="w-full h-full object-cover object-top" 
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <svg viewBox="0 0 100 100" className="w-12 h-12 opacity-70">
+                <ellipse cx="50" cy="50" rx="35" ry="35" fill="none" stroke={speakerColor} strokeWidth="1.5" />
+                <path d="M 30,70 Q 50,55 70,70" fill="none" stroke={speakerColor} strokeWidth="1.5" />
+              </svg>
+            </div>
+          )}
         </div>
 
         {/* Text Container */}

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Racer, Track, StoryRace } from "./types";
+import { Racer, Track, StoryRace, Helmet } from "./types";
 
 export const RACERS: Racer[] = [
   {
@@ -247,3 +247,35 @@ export const STORY_RACES: StoryRace[] = [
     xpAward: 1500
   }
 ];
+
+export const HELMETS: Helmet[] = [
+  {
+    id: "standard",
+    name: "Classic Carbon Dome",
+    description: "Standard issue lightweight carbon fiber weave with high visibility visor.",
+    glowColor: "#71717a", // zinc-500
+    unlockedAtLevel: 1,
+  },
+  {
+    id: "neon",
+    name: "Neon Visor V1",
+    description: "Equipped with custom heads-up grid layout and a neon cyan visor.",
+    glowColor: "#00D4FF", // Neon Cyan
+    unlockedAtLevel: 2,
+  },
+  {
+    id: "volt",
+    name: "Volt Charger",
+    description: "Cyber pink visor that syncs with magnetic engines for optimal frequency monitoring.",
+    glowColor: "#ff007f", // Cyber Pink
+    unlockedAtLevel: 3,
+  },
+  {
+    id: "apex",
+    name: "Apex Legend",
+    description: "Gold visor used by top-tier desert and street legends. Complete telemetry HUD.",
+    glowColor: "#e2f413", // Sulphur Yellow
+    unlockedAtLevel: 4,
+  },
+];
+

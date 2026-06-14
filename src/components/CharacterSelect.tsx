@@ -5,14 +5,15 @@
 
 import React, { useState } from "react";
 import { Racer, SaveData } from "../types";
-import { RACERS } from "../data";
+import { RACERS, HELMETS } from "../data";
 import { audio } from "../utils/audio";
-import { ArrowLeft, Check, Lock, Zap } from "lucide-react";
+import { ArrowLeft, Check, Lock, Zap, Shield } from "lucide-react";
 
 interface CharacterSelectProps {
   saveData: SaveData;
   activeRacerId: string;
   onSelect: (racerId: string) => void;
+  onSelectHelmet: (helmetId: string) => void;
   onBack: () => void;
 }
 
@@ -20,9 +21,15 @@ export default function CharacterSelect({
   saveData,
   activeRacerId,
   onSelect,
+  onSelectHelmet,
   onBack,
 }: CharacterSelectProps) {
   const [selectedId, setSelectedId] = useState<string>(activeRacerId);
+  const [activeTab, setActiveTab] = useState<"pilot" | "helmet">("pilot");
+
+  const currentHelmetId = saveData.selectedHelmet || "standard";
+  const activeHelmet = HELMETS.find((h) => h.id === currentHelmetId) || HELMETS[0];
+  const helmetGlow = activeHelmet.glowColor;
 
   const handleHover = () => {
     audio.playHover();
@@ -56,9 +63,25 @@ export default function CharacterSelect({
         
         {/* Simple geometric visor and helmet representation */}
         <g transform="translate(50, 55)">
+          {/* Main helmet dome */}
           <path d="M -18,-15 C -18,-35 18,-35 18,-15 C 18,5 14,14 0,16 C -14,14 -18,5 -18,-15 Z" fill="#0c0c12" stroke={color} strokeWidth="1.5" />
-          <path d="M -13,-10 C -11,-18 11,-18 13,-10 C 14,-2 9,2 0,2 C -9,2 -14,-2 -13,-10 Z" fill="#050508" stroke={color} strokeWidth="1" opacity="0.9" />
-          <path d="M -8,-11 L 3,-11" stroke="#ffffff" strokeWidth="0.8" opacity="0.6" strokeLinecap="round" />
+          
+          {/* Visor shield - color matches selected helmet glow */}
+          <path d="M -13,-10 C -11,-18 11,-18 13,-10 C 14,-2 9,2 0,2 C -9,2 -14,-2 -13,-10 Z" fill="#050508" stroke={helmetGlow} strokeWidth="1.2" opacity="0.95" />
+          
+          {/* Neon reflection */}
+          <path d="M -8,-11 L 3,-11" stroke={helmetGlow} strokeWidth="1" opacity="0.8" strokeLinecap="round" />
+          
+          {/* Decals and special detailing for high tier helmets */}
+          {currentHelmetId === "volt" && (
+            <path d="M -9,-4 L -5,-4 M 5,-4 L 9,-4" stroke="#ff007f" strokeWidth="1" />
+          )}
+          {currentHelmetId === "neon" && (
+            <circle cx="0" cy="-4" r="1.5" fill="#00D4FF" />
+          )}
+          {currentHelmetId === "apex" && (
+            <path d="M -4,-14 L 4,-14" stroke="#e2f413" strokeWidth="1.5" />
+          )}
         </g>
         <path d="M 5,5 L 95,5 L 95,115 L 5,115 Z" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
       </svg>
@@ -66,10 +89,16 @@ export default function CharacterSelect({
   };
 
   return (
-    <div className="w-full h-full text-zinc-100 flex flex-col justify-between p-6 sm:p-10 select-none bg-[#050508] relative overflow-hidden custom-scrollbar overflow-y-auto">
+    <div 
+      className="w-full h-full text-zinc-100 flex flex-col justify-between p-6 sm:p-10 select-none bg-cover bg-center bg-no-repeat relative overflow-hidden custom-scrollbar overflow-y-auto"
+      style={{ backgroundImage: 'url("/images/character_shop.jpg")' }}
+    >
+      {/* Dark showroom overlay */}
+      <div className="absolute inset-0 bg-[#050508]/90 backdrop-blur-[5px] pointer-events-none" />
+
       {/* Dynamic top-right highlight */}
       <div 
-        className="absolute -top-32 -right-32 w-80 h-80 rounded-full filter blur-[100px] opacity-10 pointer-events-none"
+        className="absolute -top-32 -right-32 w-80 h-80 rounded-full filter blur-[100px] opacity-20 pointer-events-none"
         style={{ backgroundColor: activeRacer.signatureColor }}
       />
 
@@ -77,12 +106,12 @@ export default function CharacterSelect({
       <div className="w-full max-w-6xl mx-auto flex items-center justify-between mb-8 z-10">
         <button
           onClick={() => { audio.playClick(); onBack(); }}
-          className="px-4 py-2 bg-white/[0.03] border border-white/5 rounded-xl text-xs font-sans text-zinc-400 hover:text-white transition-colors flex items-center gap-2"
+          className="px-4 py-2 bg-white/[0.03] border border-white/5 rounded-xl text-xs font-sans text-zinc-400 hover:text-white transition-colors flex items-center gap-2 cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Lobby</span>
         </button>
-        <span className="font-mono text-zinc-500 text-xs uppercase tracking-wider">Garage</span>
+        <span className="font-mono text-zinc-500 text-xs uppercase tracking-wider font-bold">PILOT LOCKER</span>
       </div>
 
       {/* Primary Workspace Panel */}
@@ -110,7 +139,33 @@ export default function CharacterSelect({
               >
                 {/* Minimal Character Portrait */}
                 <div className="w-full h-[120px] rounded-xl bg-black/40 overflow-hidden relative border border-white/5">
-                  {renderRacerPortrait(racer)}
+                  {racer.id === "zenith" ? (
+                    <img 
+                      src="/images/splash_cockpit.png" 
+                      alt={racer.name} 
+                      className="w-full h-full object-cover object-center transition-transform duration-500 group-hover:scale-105" 
+                    />
+                  ) : racer.id === "kira" ? (
+                    <img 
+                      src="/images/character_girl.png" 
+                      alt={racer.name} 
+                      className="w-full h-full object-cover object-top transition-transform duration-500 group-hover:scale-105" 
+                    />
+                  ) : racer.id === "mako" ? (
+                    <img 
+                      src="/images/character_mako.png" 
+                      alt={racer.name} 
+                      className="w-full h-full object-cover object-center transition-transform duration-500 group-hover:scale-105" 
+                    />
+                  ) : racer.id === "phoenix" ? (
+                    <img 
+                      src="/images/character_shop.jpg" 
+                      alt={racer.name} 
+                      className="w-full h-full object-cover object-center transition-transform duration-500 group-hover:scale-105" 
+                    />
+                  ) : (
+                    renderRacerPortrait(racer)
+                  )}
                   
                   {/* Status Overlay */}
                   {!isUnlocked ? (
@@ -162,67 +217,157 @@ export default function CharacterSelect({
                 </span>
               </div>
 
-              {/* Bio description */}
-              <div className="space-y-1.5">
-                <span className="font-mono text-[9px] text-zinc-500 uppercase tracking-wider block">Background</span>
-                <p className="text-xs text-zinc-300 font-sans font-light leading-relaxed">
-                  {activeRacer.description}
-                </p>
-              </div>
-
-              {/* Ability Information */}
-              <div className="p-4 rounded-xl bg-black/40 border border-white/5 flex gap-3.5 items-start">
-                <div 
-                  className="w-10 h-10 rounded-lg flex items-center justify-center border shrink-0 mt-0.5"
-                  style={{ 
-                    borderColor: `${activeRacer.signatureColor}30`,
-                    backgroundColor: `${activeRacer.signatureColor}10`
-                  }}
+              {/* Tab Navigation */}
+              <div className="flex border-b border-white/5 gap-4 mt-2">
+                <button 
+                  onClick={() => { audio.playClick(); setActiveTab("pilot"); }}
+                  className={`pb-2 text-xs font-mono font-bold tracking-wider transition-colors ${activeTab === "pilot" ? "text-white border-b-2" : "text-zinc-500 hover:text-zinc-300"}`}
+                  style={{ borderBottomColor: activeTab === "pilot" ? activeRacer.signatureColor : "transparent" }}
                 >
-                  <Zap className="w-5 h-5" style={{ color: activeRacer.signatureColor }} />
-                </div>
-                <div className="space-y-0.5">
-                  <span className="font-mono text-[8px] text-zinc-500 uppercase tracking-widest block font-bold">Signature Skill</span>
-                  <h4 className="font-sans font-medium text-xs text-white">{activeRacer.abilityName}</h4>
-                  <p className="text-[11px] text-zinc-400 font-light font-sans leading-relaxed">
-                    {activeRacer.abilityDesc}
-                  </p>
-                </div>
+                  PILOT STATS
+                </button>
+                <button 
+                  onClick={() => { audio.playClick(); setActiveTab("helmet"); }}
+                  className={`pb-2 text-xs font-mono font-bold tracking-wider transition-colors ${activeTab === "helmet" ? "text-white border-b-2" : "text-zinc-500 hover:text-zinc-300"}`}
+                  style={{ borderBottomColor: activeTab === "helmet" ? activeRacer.signatureColor : "transparent" }}
+                >
+                  HELMET LOCKER
+                </button>
               </div>
 
-              {/* Performance sliders */}
-              <div className="space-y-2.5">
-                <span className="font-mono text-[9px] text-zinc-500 uppercase tracking-wider block">Performance Matrix</span>
-                
-                {Object.entries(activeRacer.stats).map(([stat, val]) => (
-                  <div key={stat} className="flex flex-col">
-                    <div className="flex justify-between items-center text-[10px] font-mono text-zinc-400 uppercase">
-                      <span>{stat}</span>
-                      <span className="text-zinc-200">{val} / 10</span>
+              {activeTab === "pilot" ? (
+                <div className="space-y-6 animate-fade-in">
+                  {/* Bio description */}
+                  <div className="space-y-1.5">
+                    <span className="font-mono text-[9px] text-zinc-500 uppercase tracking-wider block">Background</span>
+                    <p className="text-xs text-zinc-300 font-sans font-light leading-relaxed">
+                      {activeRacer.description}
+                    </p>
+                  </div>
+
+                  {/* Ability Information */}
+                  <div className="p-4 rounded-xl bg-black/40 border border-white/5 flex gap-3.5 items-start">
+                    <div 
+                      className="w-10 h-10 rounded-lg flex items-center justify-center border shrink-0 mt-0.5"
+                      style={{ 
+                        borderColor: `${activeRacer.signatureColor}30`,
+                        backgroundColor: `${activeRacer.signatureColor}10`
+                      }}
+                    >
+                      <Zap className="w-5 h-5" style={{ color: activeRacer.signatureColor }} />
                     </div>
-                    <div className="w-full bg-white/5 h-[3px] rounded-full overflow-hidden mt-1 inline-block">
-                      <div 
-                        className="h-full transition-all duration-500" 
-                        style={{ 
-                          width: `${val * 10}%`,
-                          backgroundColor: activeRacer.signatureColor 
-                        }}
-                      />
+                    <div className="space-y-0.5">
+                      <span className="font-mono text-[8px] text-zinc-500 uppercase tracking-widest block font-bold">Signature Skill</span>
+                      <h4 className="font-sans font-medium text-xs text-white">{activeRacer.abilityName}</h4>
+                      <p className="text-[11px] text-zinc-400 font-light font-sans leading-relaxed">
+                        {activeRacer.abilityDesc}
+                      </p>
                     </div>
                   </div>
-                ))}
-              </div>
+
+                  {/* Performance sliders */}
+                  <div className="space-y-2.5">
+                    <span className="font-mono text-[9px] text-zinc-500 uppercase tracking-wider block">Performance Matrix</span>
+                    
+                    {Object.entries(activeRacer.stats).map(([stat, val]) => (
+                      <div key={stat} className="flex flex-col">
+                        <div className="flex justify-between items-center text-[10px] font-mono text-zinc-400 uppercase">
+                          <span>{stat}</span>
+                          <span className="text-zinc-200">{val} / 10</span>
+                        </div>
+                        <div className="w-full bg-white/5 h-[3px] rounded-full overflow-hidden mt-1 inline-block">
+                          <div 
+                            className="h-full transition-all duration-500" 
+                            style={{ 
+                              width: `${val * 10}%`,
+                              backgroundColor: activeRacer.signatureColor 
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4 animate-fade-in">
+                  <span className="font-mono text-[9px] text-zinc-500 uppercase tracking-wider block">Unlocked Customizations</span>
+                  <div className="space-y-3 max-h-[280px] overflow-y-auto pr-1 custom-scrollbar">
+                    {HELMETS.map((helmet) => {
+                      const isUnlocked = saveData.unlockedHelmets?.includes(helmet.id) || (helmet.unlockedAtLevel === 1);
+                      const isActive = currentHelmetId === helmet.id;
+
+                      return (
+                        <div
+                          key={helmet.id}
+                          onClick={() => {
+                            if (!isUnlocked) return;
+                            audio.playSelect();
+                            onSelectHelmet(helmet.id);
+                          }}
+                          className={`p-3 rounded-xl border flex gap-3.5 items-center relative overflow-hidden transition-all ${
+                            isUnlocked 
+                              ? "cursor-pointer hover:bg-white/[0.03]" 
+                              : "opacity-40 cursor-not-allowed"
+                          } ${
+                            isActive 
+                              ? "bg-white/[0.04] border-white/20 animate-pulse" 
+                              : "border-white/5"
+                          }`}
+                          style={{
+                            borderColor: isActive ? helmet.glowColor : ""
+                          }}
+                        >
+                          {/* Helmet glow dot */}
+                          <div 
+                            className="w-8 h-8 rounded-lg flex items-center justify-center border shrink-0"
+                            style={{ 
+                              borderColor: isUnlocked ? `${helmet.glowColor}40` : "rgba(255,255,255,0.05)",
+                              backgroundColor: isUnlocked ? `${helmet.glowColor}10` : "rgba(255,255,255,0.02)"
+                            }}
+                          >
+                            <Shield className="w-4 h-4" style={{ color: isUnlocked ? helmet.glowColor : "#52525b" }} />
+                          </div>
+
+                          <div className="flex-1 min-w-0 text-left">
+                            <div className="flex justify-between items-baseline">
+                              <h4 className="font-sans font-medium text-xs text-white truncate">{helmet.name}</h4>
+                              {!isUnlocked && (
+                                <span className="font-mono text-[8px] text-[#ff007f] font-bold">LVL {helmet.unlockedAtLevel}</span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-zinc-400 font-sans font-light leading-snug mt-0.5">
+                              {helmet.description}
+                            </p>
+                          </div>
+
+                          {isActive && (
+                            <div 
+                              className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                              style={{ backgroundColor: helmet.glowColor }}
+                            >
+                              <Check className="w-2.5 h-2.5 text-[#050508] stroke-[3px]" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="pt-6">
-              <button
-                onClick={() => { audio.playSelect(); onBack(); }}
-                className="w-full py-3.5 rounded-xl font-sans font-medium text-xs text-zinc-950 transition-all hover:opacity-90 active:scale-98"
-                style={{ backgroundColor: activeRacer.signatureColor }}
-              >
-                Confirm Pilot
-              </button>
-            </div>
+             <div className="pt-6">
+               <button
+                 onClick={() => { audio.playSelect(); onBack(); }}
+                 className="w-full py-3.5 rounded-xl font-orbitron font-bold text-xs tracking-widest text-zinc-950 transition-all hover:opacity-95 active:scale-98 cursor-pointer"
+                 style={{ 
+                   backgroundColor: activeRacer.signatureColor,
+                   boxShadow: `0 0 20px ${activeRacer.signatureColor}35`
+                 }}
+               >
+                 Confirm Pilot
+               </button>
+             </div>
           </div>
         </div>
 

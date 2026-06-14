@@ -37,6 +37,14 @@ export interface Track {
   unlockedAtXp: number;
 }
 
+export interface Helmet {
+  id: string;
+  name: string;
+  description: string;
+  glowColor: string;
+  unlockedAtLevel: number;
+}
+
 export interface SaveData {
   xp: number;
   level: number;
@@ -44,6 +52,8 @@ export interface SaveData {
   unlockedTracks: string[]; // Track IDs
   storyProgress: number;    // Last accomplished story race index (0, 1, 2)
   bestEndlessScore: number; // High score of Marks Left
+  unlockedHelmets?: string[]; // Helmet IDs
+  selectedHelmet?: string;  // Active Helmet ID
 }
 
 export type ScreenState = 

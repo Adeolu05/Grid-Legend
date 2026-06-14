@@ -4,74 +4,40 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
 import { Racer, Track } from "../types";
 import { audio } from "../utils/audio";
+import { HELMETS } from "../data";
 
 interface GameCanvasProps {
   playerRacer: Racer;
   rivalRacer: Racer;
   track: Track;
   isEndless: boolean;
+  selectedHelmet?: string;
   onRaceComplete: (marks: number, isVictory: boolean, timeSec: number) => void;
   onExit: () => void;
 }
 
-// Particle class for object pooling
-class GridParticle {
-  x = 0;
-  y = 0;
-  vx = 0;
-  vy = 0;
-  color = "#fff";
-  alpha = 1.0;
-  decay = 0.02;
-  size = 2;
-  active = false;
-
-  init(x: number, y: number, vx: number, vy: number, color: string, decay = 0.02, size = 3) {
-    this.x = x;
-    this.y = y;
-    this.vx = vx;
-    this.vy = vy;
-    this.color = color;
-    this.alpha = 1.0;
-    this.decay = decay;
-    this.size = size;
-    this.active = true;
-  }
-
-  update() {
-    this.x += this.vx;
-    this.y += this.vy;
-    this.alpha -= this.decay;
-    if (this.alpha <= 0) {
-      this.active = false;
-    }
-  }
-
-  draw(ctx: CanvasRenderingContext2D) {
-    ctx.save();
-    ctx.globalAlpha = this.alpha;
-    ctx.fillStyle = this.color;
-    // Removed excess shadowBlur to keep particles clean and controlled
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
+// 3D Particle Structure
+interface Spark3D {
+  mesh: THREE.Mesh;
+  vx: number;
+  vy: number;
+  vz: number;
+  life: number;
+  maxLife: number;
+  active: boolean;
 }
 
-// Tire tracks / Drift trails structure
-interface TireTrail {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  alpha: number;
-  color: string;
+// 3D Drift Trail Segment
+interface TrailSegment3D {
+  mesh: THREE.Mesh;
+  zPos: number; // relative Z coordinate
+  life: number;
+  active: boolean;
 }
 
-// Enemy / civilian vehicles
 interface TrafficVehicle {
   id: number;
   x: number;
@@ -84,7 +50,6 @@ interface TrafficVehicle {
   type: "car" | "drone" | "truck";
 }
 
-// Score multiplier rings or energy cells
 interface EnergyCell {
   x: number;
   y: number;
@@ -97,11 +62,15 @@ export default function GameCanvas({
   rivalRacer,
   track,
   isEndless,
+  selectedHelmet = "standard",
   onRaceComplete,
   onExit,
 }: GameCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const traffic = useRef<TrafficVehicle[]>([]);
+  const energyCells = useRef<EnergyCell[]>([]);
 
   // States for live rendering
   const [marksLeft, setMarksLeft] = useState<number>(0);
@@ -110,7 +79,6 @@ export default function GameCanvas({
   const [isBoosting, setIsBoosting] = useState<boolean>(false);
   const [lap, setLap] = useState<number>(1);
   const [raceTime, setRaceTime] = useState<number>(0);
-  const [distanceTraveled, setDistanceTraveled] = useState<number>(0);
 
   // Keys & Interactive State
   const inputTargetXRef = useRef<number | null>(null);
@@ -127,7 +95,7 @@ export default function GameCanvas({
     trackProgress: 0, // Current total distance
     trackLength: isEndless ? 9999999 : 25000, 
     speed: 0,
-    maxSpeed: isBoosting ? 260 : 160,
+    maxSpeed: 160,
     acceleration: 0.15,
     deceleration: 0.05,
     boostActive: false,
@@ -137,65 +105,11 @@ export default function GameCanvas({
     lastTime: 0,
     shakeDuration: 0,
     shakeIntensity: 0,
-    driftScoreTimer: 0,
   });
 
-  // Game assets / pools
-  const particlePool = useRef<GridParticle[]>([]);
-  const trails = useRef<TireTrail[]>([]);
-  const traffic = useRef<TrafficVehicle[]>([]);
-  const energyCells = useRef<EnergyCell[]>([]);
-  const speedLines = useRef<{ x: number; y: number; length: number; speed: number }[]>([]);
-
-  // Initialize Particle Pool once
-  useEffect(() => {
-    const pool: GridParticle[] = [];
-    for (let i = 0; i < 150; i++) {
-      pool.push(new GridParticle());
-    }
-    particlePool.current = pool;
-
-    // Prep some initial background speedlines
-    const lines = [];
-    for (let i = 0; i < 25; i++) {
-      lines.push({
-        x: Math.random() * 400 - 200,
-        y: Math.random() * 800,
-        length: Math.random() * 80 + 40,
-        speed: Math.random() * 15 + 15,
-      });
-    }
-    speedLines.current = lines;
-
-    // Start Audio
-    audio.startEngine();
-
-    return () => {
-      audio.stopEngine();
-    };
-  }, []);
-
-  const spawnSpark = (x: number, y: number, color: string, count = 3) => {
-    let spawned = 0;
-    const pool = particlePool.current;
-    for (let i = 0; i < pool.length; i++) {
-      if (!pool[i].active) {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 4 + 2;
-        pool[i].init(
-          x,
-          y,
-          Math.cos(angle) * speed,
-          Math.sin(angle) * speed - 2, // Drift sparks fly up/back
-          color,
-          Math.random() * 0.03 + 0.02,
-          Math.random() * 3 + 1.5
-        );
-        spawned++;
-        if (spawned >= count) break;
-      }
-    }
-  };
+  // Track settings mapping
+  const barrierColorStr = track.environmentType === "rooftops" ? "#ff007f" : track.environmentType === "highway" ? "#00ffcc" : "#00D4FF";
+  const barrierColor = new THREE.Color(barrierColorStr);
 
   // Keyboard handlers
   useEffect(() => {
@@ -217,34 +131,15 @@ export default function GameCanvas({
     };
   }, [boostLevel]);
 
-  // Resize Listener (Responsive Layout per guidelines)
-  useEffect(() => {
-    const container = containerRef.current;
-    const canvas = canvasRef.current;
-    if (!container || !canvas) return;
-
-    const updateSize = () => {
-      canvas.width = container.clientWidth;
-      canvas.height = container.clientHeight;
-    };
-
-    const observer = new ResizeObserver(updateSize);
-    observer.observe(container);
-    updateSize();
-
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-
   const triggerBoost = () => {
-    if (boostLevel >= 25 && !gameStateRef.current.boostActive && !gameStateRef.current.isCrashed) {
-      gameStateRef.current.boostActive = true;
-      gameStateRef.current.boostDuration = 2.0; // 2 seconds
+    const state = gameStateRef.current;
+    if (boostLevel >= 25 && !state.boostActive && !state.isCrashed) {
+      state.boostActive = true;
+      state.boostDuration = 2.0; // 2 seconds
       setBoostLevel((prev) => Math.max(0, prev - 25));
       setIsBoosting(true);
       audio.playBoost();
-      triggerScreenShake(12, 10);
+      triggerScreenShake(8, 12);
     }
   };
 
@@ -275,29 +170,471 @@ export default function GameCanvas({
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const relativeX = clientX - rect.left;
-    // Map center of screen as 0, extremes as -150 to +150
     const ratio = (relativeX / rect.width) * 2 - 1; // -1 to 1
-    inputTargetXRef.current = ratio * 180; // Allow slight drift offsets
+    inputTargetXRef.current = ratio * 180;
   };
 
-  // Core Game Loop
+  // 3D Game Engine Loop & Asset Hookup
   useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+
+    // 1. SETUP THREE.JS SCENE & RENDERER
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    renderer.setSize(width, height, false);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x050508);
+    scene.fog = new THREE.FogExp2(0x050508, 0.0035);
+
+    const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
+    camera.position.set(0, 6, 14);
+
+    // 2. LIGHTING SETUP
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(0, 40, -100);
+    scene.add(dirLight);
+
+    // Additional neon city ambient light
+    const pointLight = new THREE.PointLight(barrierColor, 1.5, 80);
+    pointLight.position.set(0, 10, -30);
+    scene.add(pointLight);
+
+    // 3. INFINITE ROAD TILES
+    // Width of road: 46 units. Length of tile: 200 units.
+    const roadGroup = new THREE.Group();
+    scene.add(roadGroup);
+
+    const roadTiles: THREE.Group[] = [];
+    const roadLength = 200;
+    const numRoadTiles = 4;
+
+    const createRoadTile = (zPos: number) => {
+      const tile = new THREE.Group();
+      tile.position.z = zPos;
+
+      // Asphalt
+      const asphaltGeom = new THREE.PlaneGeometry(46, roadLength);
+      const asphaltMat = new THREE.MeshStandardMaterial({
+        color: 0x0a0a10,
+        roughness: 0.8,
+        metalness: 0.1,
+      });
+      const asphalt = new THREE.Mesh(asphaltGeom, asphaltMat);
+      asphalt.rotation.x = -Math.PI / 2;
+      tile.add(asphalt);
+
+      // Neon Left Barrier
+      const barrierGeom = new THREE.BoxGeometry(0.5, 1.2, roadLength);
+      const barrierMat = new THREE.MeshStandardMaterial({
+        color: barrierColor,
+        emissive: barrierColor,
+        emissiveIntensity: 1.0,
+      });
+      const leftBarrier = new THREE.Mesh(barrierGeom, barrierMat);
+      leftBarrier.position.set(-23, 0.6, 0);
+      tile.add(leftBarrier);
+
+      // Neon Right Barrier
+      const rightBarrier = new THREE.Mesh(barrierGeom, barrierMat);
+      rightBarrier.position.set(23, 0.6, 0);
+      tile.add(rightBarrier);
+
+      // Central dashed stripes
+      const lineGeom = new THREE.PlaneGeometry(0.3, 8);
+      const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.35, transparent: true });
+      for (let zOffset = -roadLength / 2; zOffset < roadLength / 2; zOffset += 24) {
+        const line = new THREE.Mesh(lineGeom, lineMat);
+        line.rotation.x = -Math.PI / 2;
+        line.position.set(0, 0.02, zOffset + 12);
+        tile.add(line);
+      }
+
+      roadGroup.add(tile);
+      roadTiles.push(tile);
+    };
+
+    for (let i = 0; i < numRoadTiles; i++) {
+      createRoadTile(-i * roadLength);
+    }
+
+    // 4. PARALLAX CITY ENVIRONMENT BUILDINGS
+    const buildingsGroup = new THREE.Group();
+    scene.add(buildingsGroup);
+
+    interface Building3D {
+      mesh: THREE.Mesh;
+      initialX: number;
+    }
+    const buildings: Building3D[] = [];
+    const numBuildings = 20;
+
+    for (let i = 0; i < numBuildings; i++) {
+      const bHeight = 40 + Math.random() * 80;
+      const bWidth = 10 + Math.random() * 20;
+      const bDepth = 10 + Math.random() * 20;
+      const bGeom = new THREE.BoxGeometry(bWidth, bHeight, bDepth);
+      const bMat = new THREE.MeshStandardMaterial({
+        color: 0x07070f,
+        roughness: 0.9,
+        metalness: 0.1,
+      });
+      const bMesh = new THREE.Mesh(bGeom, bMat);
+
+      // Glowing edges wireframe outline for cyber style
+      const edges = new THREE.EdgesGeometry(bGeom);
+      const lineMat = new THREE.LineBasicMaterial({
+        color: playerRacer.signatureColor,
+        opacity: 0.15,
+        transparent: true,
+      });
+      const wireframe = new THREE.LineSegments(edges, lineMat);
+      bMesh.add(wireframe);
+
+      // Placement
+      const side = Math.random() > 0.5 ? 1 : -1;
+      const xOffset = side * (35 + Math.random() * 60);
+      const zOffset = -Math.random() * 650;
+      bMesh.position.set(xOffset, bHeight / 2 - 2, zOffset);
+
+      buildingsGroup.add(bMesh);
+      buildings.push({ mesh: bMesh, initialX: xOffset });
+    }
+
+    // 5. SPEED LINES
+    const speedLinesGroup = new THREE.Group();
+    scene.add(speedLinesGroup);
+
+    const speedLinesArr: THREE.Line[] = [];
+    const numSpeedLines = 30;
+    const speedLineGeom = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, 8),
+    ]);
+    const speedLineMat = new THREE.LineBasicMaterial({
+      color: 0xffffff,
+      opacity: 0.12,
+      transparent: true,
+    });
+
+    for (let i = 0; i < numSpeedLines; i++) {
+      const line = new THREE.Line(speedLineGeom, speedLineMat);
+      line.position.set(
+        (Math.random() - 0.5) * 80,
+        Math.random() * 12 + 0.5,
+        -Math.random() * 300
+      );
+      speedLinesGroup.add(line);
+      speedLinesArr.push(line);
+    }
+
+    // 6. PLAYER SHIP MESH MODEL (sleek and stylized spaceship)
+    const playerGroup = new THREE.Group();
+    scene.add(playerGroup);
+
+    const mainColor = new THREE.Color(playerRacer.signatureColor);
+    const helmetColorStr = HELMETS.find((h) => h.id === selectedHelmet)?.glowColor || playerRacer.signatureColor;
+    const helmetColor = new THREE.Color(helmetColorStr);
+
+    // Fuselage
+    const fuseGeom = new THREE.ConeGeometry(0.7, 3.2, 5);
+    const shipMat = new THREE.MeshStandardMaterial({
+      color: mainColor,
+      roughness: 0.2,
+      metalness: 0.8,
+    });
+    const fuselage = new THREE.Mesh(fuseGeom, shipMat);
+    fuselage.rotation.x = -Math.PI / 2;
+    playerGroup.add(fuselage);
+
+    // Left Wing
+    const leftWingGeom = new THREE.BoxGeometry(1.6, 0.08, 1.2);
+    const leftWing = new THREE.Mesh(leftWingGeom, shipMat);
+    leftWing.position.set(-1.0, -0.1, 0.4);
+    leftWing.rotation.y = 0.2;
+    leftWing.rotation.z = 0.1;
+    playerGroup.add(leftWing);
+
+    // Right Wing
+    const rightWingGeom = new THREE.BoxGeometry(1.6, 0.08, 1.2);
+    const rightWing = new THREE.Mesh(rightWingGeom, shipMat);
+    rightWing.position.set(1.0, -0.1, 0.4);
+    rightWing.rotation.y = -0.2;
+    rightWing.rotation.z = -0.1;
+    playerGroup.add(rightWing);
+
+    // Cockpit Visor (reflecting the selected helmet color!)
+    const visorGeom = new THREE.SphereGeometry(0.35, 12, 12);
+    const visorMat = new THREE.MeshStandardMaterial({
+      color: helmetColor,
+      emissive: helmetColor,
+      emissiveIntensity: 0.8,
+      roughness: 0.05,
+      metalness: 0.95,
+    });
+    const visor = new THREE.Mesh(visorGeom, visorMat);
+    visor.scale.set(1, 0.6, 1.8);
+    visor.position.set(0, 0.35, -0.4);
+    playerGroup.add(visor);
+
+    // Exhaust Cylinders
+    const exhGeom = new THREE.CylinderGeometry(0.2, 0.2, 0.5, 6);
+    const exhMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.7 });
+    const exhL = new THREE.Mesh(exhGeom, exhMat);
+    exhL.position.set(-0.35, -0.12, 1.4);
+    exhL.rotation.x = -Math.PI / 2;
+    playerGroup.add(exhL);
+
+    const exhR = new THREE.Mesh(exhGeom, exhMat);
+    exhR.position.set(0.35, -0.12, 1.4);
+    exhR.rotation.x = -Math.PI / 2;
+    playerGroup.add(exhR);
+
+    // Glowing plume cones
+    const plumeGeom = new THREE.ConeGeometry(0.18, 0.9, 5);
+    const plumeMat = new THREE.MeshBasicMaterial({ color: helmetColor });
+    const plumeL = new THREE.Mesh(plumeGeom, plumeMat);
+    plumeL.position.set(-0.35, -0.12, 1.9);
+    plumeL.rotation.x = Math.PI / 2;
+    playerGroup.add(plumeL);
+
+    const plumeR = new THREE.Mesh(plumeGeom, plumeMat);
+    plumeR.position.set(0.35, -0.12, 1.9);
+    plumeR.rotation.x = Math.PI / 2;
+    playerGroup.add(plumeR);
+
+    // Initial position
+    playerGroup.position.set(0, 0.6, 0);
+
+    // 7. RIVAL SHIP MESH MODEL (if not endless mode)
+    let rivalGroup: THREE.Group | null = null;
+    if (!isEndless) {
+      rivalGroup = new THREE.Group();
+      scene.add(rivalGroup);
+
+      const rivalColor = new THREE.Color(rivalRacer.signatureColor);
+      const rivalFuse = new THREE.Mesh(fuseGeom, new THREE.MeshStandardMaterial({
+        color: rivalColor,
+        roughness: 0.2,
+        metalness: 0.8,
+      }));
+      rivalFuse.rotation.x = -Math.PI / 2;
+      rivalGroup.add(rivalFuse);
+
+      const rivalL = new THREE.Mesh(leftWingGeom, new THREE.MeshStandardMaterial({ color: rivalColor }));
+      rivalL.position.set(-1.0, -0.1, 0.4);
+      rivalL.rotation.y = 0.2;
+      rivalL.rotation.z = 0.1;
+      rivalGroup.add(rivalL);
+
+      const rivalR = new THREE.Mesh(rightWingGeom, new THREE.MeshStandardMaterial({ color: rivalColor }));
+      rivalR.position.set(1.0, -0.1, 0.4);
+      rivalR.rotation.y = -0.2;
+      rivalR.rotation.z = -0.1;
+      rivalGroup.add(rivalR);
+
+      // Rival Visor
+      const rivalVisor = new THREE.Mesh(visorGeom, new THREE.MeshStandardMaterial({
+        color: rivalColor,
+        emissive: rivalColor,
+        emissiveIntensity: 0.6,
+        roughness: 0.1,
+      }));
+      rivalVisor.scale.set(1, 0.6, 1.8);
+      rivalVisor.position.set(0, 0.35, -0.4);
+      rivalGroup.add(rivalVisor);
+
+      rivalGroup.position.set(0, 0.6, -100);
+    }
+
+    // 8. TRAFFIC MESHES MAP
+    const trafficMeshes = new Map<number, THREE.Group>();
+
+    const createTrafficMesh = (type: "car" | "drone" | "truck", colorHex: string) => {
+      const group = new THREE.Group();
+      const col = new THREE.Color(colorHex);
+
+      if (type === "drone") {
+        const geom = new THREE.OctahedronGeometry(1.0, 0);
+        const mat = new THREE.MeshStandardMaterial({
+          color: col,
+          emissive: col,
+          emissiveIntensity: 0.6,
+          roughness: 0.3,
+        });
+        const mesh = new THREE.Mesh(geom, mat);
+        group.add(mesh);
+
+        const ringGeom = new THREE.TorusGeometry(1.1, 0.08, 8, 16);
+        const ringMat = new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 0.5 });
+        const ring = new THREE.Mesh(ringGeom, ringMat);
+        ring.rotation.x = Math.PI / 2;
+        group.add(ring);
+      } else {
+        // Hovercraft car boxy shapes
+        const geom = new THREE.BoxGeometry(1.8, 0.8, 3.4);
+        const mat = new THREE.MeshStandardMaterial({
+          color: col,
+          roughness: 0.5,
+          metalness: 0.4,
+        });
+        const body = new THREE.Mesh(geom, mat);
+        group.add(body);
+
+        // Windshield
+        const glassGeom = new THREE.BoxGeometry(1.4, 0.35, 1.2);
+        const glassMat = new THREE.MeshStandardMaterial({ color: 0x111116, roughness: 0.1 });
+        const glass = new THREE.Mesh(glassGeom, glassMat);
+        glass.position.set(0, 0.4, -0.2);
+        group.add(glass);
+
+        // Headlights
+        const headG = new THREE.BoxGeometry(0.25, 0.12, 0.08);
+        const headM = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const hl = new THREE.Mesh(headG, headM);
+        hl.position.set(-0.65, -0.05, -1.7);
+        group.add(hl);
+        const hr = new THREE.Mesh(headG, headM);
+        hr.position.set(0.65, -0.05, -1.7);
+        group.add(hr);
+
+        // Taillights
+        const tailG = new THREE.BoxGeometry(0.25, 0.12, 0.08);
+        const tailM = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        const tl = new THREE.Mesh(tailG, tailM);
+        tl.position.set(-0.65, -0.05, 1.7);
+        group.add(tl);
+        const tr = new THREE.Mesh(tailG, tailM);
+        tr.position.set(0.65, -0.05, 1.7);
+        group.add(tr);
+      }
+
+      scene.add(group);
+      return group;
+    };
+
+    // 9. ENERGY CELL PICKUPS MAP
+    const energyMeshes = new Map<number, THREE.Mesh>();
+    const pickupGeom = new THREE.OctahedronGeometry(0.7, 0);
+    const pickupMat = new THREE.MeshStandardMaterial({
+      color: 0xe2f413,
+      emissive: 0xe2f413,
+      emissiveIntensity: 1.0,
+      roughness: 0.1,
+    });
+
+    // 10. 3D SPARK PARTICLES POOL
+    const maxSparks = 80;
+    const sparksPool: Spark3D[] = [];
+    const sparkGeom = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+
+    for (let i = 0; i < maxSparks; i++) {
+      const sparkMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 1.0,
+      });
+      const mesh = new THREE.Mesh(sparkGeom, sparkMat);
+      mesh.visible = false;
+      scene.add(mesh);
+      sparksPool.push({
+        mesh,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        life: 0,
+        maxLife: 1.0,
+        active: false,
+      });
+    }
+
+    const triggerSparks3D = (x: number, y: number, z: number, colorStr: string, count = 2) => {
+      let triggered = 0;
+      const col = new THREE.Color(colorStr);
+      for (let i = 0; i < maxSparks; i++) {
+        if (!sparksPool[i].active) {
+          const spark = sparksPool[i];
+          spark.mesh.position.set(x, y, z);
+          (spark.mesh.material as THREE.MeshBasicMaterial).color = col;
+          spark.mesh.visible = true;
+          spark.vx = (Math.random() - 0.5) * 12;
+          spark.vy = Math.random() * 8 + 1;
+          spark.vz = Math.random() * 15 + 10; // fly backwards
+          spark.life = 0.6 + Math.random() * 0.4;
+          spark.maxLife = spark.life;
+          spark.active = true;
+
+          triggered++;
+          if (triggered >= count) break;
+        }
+      }
+    };
+
+    // 11. DRIFT TRAILS POOL
+    const maxTrails = 150;
+    const trailsPool: TrailSegment3D[] = [];
+    const trailGeom = new THREE.PlaneGeometry(0.35, 2.5);
+
+    for (let i = 0; i < maxTrails; i++) {
+      const tMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(playerRacer.trailColor),
+        transparent: true,
+        opacity: 0.8,
+        depthWrite: false,
+      });
+      const tMesh = new THREE.Mesh(trailGeom, tMat);
+      tMesh.rotation.x = -Math.PI / 2;
+      tMesh.visible = false;
+      scene.add(tMesh);
+
+      trailsPool.push({
+        mesh: tMesh,
+        zPos: 0,
+        life: 0,
+        active: false,
+      });
+    }
+
+    const spawnTrailSegment3D = (x: number, z: number) => {
+      for (let i = 0; i < maxTrails; i++) {
+        if (!trailsPool[i].active) {
+          const trail = trailsPool[i];
+          trail.mesh.position.set(x, 0.03, z);
+          trail.mesh.visible = true;
+          trail.life = 1.0;
+          trail.active = true;
+          break;
+        }
+      }
+    };
+
+    // 12. RUNNING TIMING VARIABLES
     let lastStamp = performance.now();
     let trafficIdCounter = 0;
-    
-    // Spawn simple traffic periodically
-    const trafficInterval = setInterval(() => {
-      if (gameStateRef.current.isCrashed) return;
-      
-      const speedFactor = gameStateRef.current.speed / 100;
-      if (traffic.current.length < 5) {
-        const isDrone = Math.random() > 0.6;
+    const playerWorldY = 600 * 0.75; // screen Y target logic coordinate
+
+    // Spawn logical elements periodically
+    const logicInterval = setInterval(() => {
+      const state = gameStateRef.current;
+      if (state.isCrashed) return;
+
+      const trafficArr = traffic.current;
+      if (trafficArr.length < 5) {
+        const isDrone = Math.random() > 0.65;
         const sampleColors = ["#ef4444", "#3b82f6", "#10b981", "#a855f7", "#ec4899"];
-        traffic.current.push({
+        trafficArr.push({
           id: trafficIdCounter++,
-          x: (Math.random() * 3 - 1) * 80, // Pick lane
-          y: -100 - Math.random() * 300, // Distance ahead
-          speed: Math.random() * 4 + 2,
+          x: (Math.random() * 3 - 1) * 80,
+          y: -100 - Math.random() * 300,
+          speed: Math.random() * 3 + 2.5,
           lane: Math.floor(Math.random() * 3),
           color: sampleColors[Math.floor(Math.random() * sampleColors.length)],
           width: 32,
@@ -306,35 +643,29 @@ export default function GameCanvas({
         });
       }
 
-      // Spawn energy pickups
-      if (energyCells.current.length < 3 && Math.random() > 0.4) {
-        energyCells.current.push({
+      const cellArr = energyCells.current;
+      if (cellArr.length < 3 && Math.random() > 0.45) {
+        cellArr.push({
           x: (Math.random() * 3 - 1) * 75,
           y: -150 - Math.random() * 400,
           active: true,
           pulse: 0,
         });
       }
-    }, 1200);
+    }, 1100);
 
+    // Audio Engine
+    audio.startEngine();
+
+    // 13. ANIMATION RENDERING LOOP
     const animationLoop = (timestamp: number) => {
-      const dt = (timestamp - lastStamp) / 1000;
+      const dt = Math.min((timestamp - lastStamp) / 1000, 0.1);
       lastStamp = timestamp;
-
-      const canvas = canvasRef.current;
-      if (!canvas) {
-        animationFrameId.current = requestAnimationFrame(animationLoop);
-        return;
-      }
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        animationFrameId.current = requestAnimationFrame(animationLoop);
-        return;
-      }
 
       const state = gameStateRef.current;
 
-      // 1. INPUT PROCESSING
+      // --- LOGIC CALCULATIONS ---
+      // A. Input controls
       let moveDir = 0;
       if (keysPressed.current["ArrowLeft"] || keysPressed.current["a"] || keysPressed.current["A"]) {
         state.playerTargetX = Math.max(-150, state.playerTargetX - 12);
@@ -345,7 +676,6 @@ export default function GameCanvas({
         moveDir = 1;
       }
 
-      // Touch Override
       if (inputTargetXRef.current !== null) {
         state.playerTargetX = Math.min(150, Math.max(-150, inputTargetXRef.current));
         const deltaX = state.playerTargetX - state.playerX;
@@ -354,42 +684,35 @@ export default function GameCanvas({
         }
       }
 
-      // Smooth horizontal position interpolation
-      const lerpSpeed = 0.15;
       const prevX = state.playerX;
-      state.playerX += (state.playerTargetX - state.playerX) * lerpSpeed;
-
-      // Drift detection
+      state.playerX += (state.playerTargetX - state.playerX) * 0.16;
       const actualDx = state.playerX - prevX;
       const isDrifting = Math.abs(actualDx) > 2.5 && state.speed > 50;
 
-      // 2. TIMERS & TIMINGS
       if (!state.isCrashed) {
         setRaceTime((prev) => prev + dt);
       }
 
-      // 3. PHYSICAL LAWS (SPEED ENGINE)
+      // B. Physical Speed calculations
       if (state.isCrashed) {
-        state.speed = Math.max(0, state.speed - 300 * dt);
+        state.speed = Math.max(0, state.speed - 320 * dt);
         state.crashTimer -= dt;
         if (state.crashTimer <= 0) {
           state.isCrashed = false;
         }
       } else {
-        // Compute speed ceilings
         const targetMax = state.boostActive 
           ? (180 + playerRacer.stats.boost * 15) 
           : (110 + playerRacer.stats.speed * 12);
 
         if (state.boostActive) {
-          state.speed += (targetMax - state.speed) * 0.25;
+          state.speed += (targetMax - state.speed) * 0.28;
           state.boostDuration -= dt;
           if (state.boostDuration <= 0) {
             state.boostActive = false;
             setIsBoosting(false);
           }
         } else {
-          // Regular flow acceleration
           state.speed += (targetMax - state.speed) * 0.08;
         }
       }
@@ -397,565 +720,420 @@ export default function GameCanvas({
       setSpeedKmh(Math.round(state.speed));
       audio.setEngineSpeed(state.speed / 260, state.boostActive);
 
-      // 4. LANDSCAPE SCROLLING PROGRESS
-      const distanceDelta = (state.speed * dt * 2.2); // Scaling factor
+      const distanceDelta = (state.speed * dt * 2.2);
       state.trackProgress += distanceDelta;
-      setDistanceTraveled(Math.round(state.trackProgress));
 
-      // Check Lap / Win Criteria
-      const totalTrackLaps = track.laps;
-      const currentLapProgressRaw = state.trackProgress / (state.trackLength / totalTrackLaps);
-      const computedLap = Math.min(totalTrackLaps, Math.floor(currentLapProgressRaw) + 1);
+      // Lap calculations
+      const currentLapProgressRaw = state.trackProgress / (state.trackLength / track.laps);
+      const computedLap = Math.min(track.laps, Math.floor(currentLapProgressRaw) + 1);
       setLap(computedLap);
 
+      // Level victory check
       if (!isEndless && state.trackProgress >= state.trackLength && !state.isCrashed) {
-        // Victory!
         audio.stopEngine();
         audio.playVictory();
         onRaceComplete(marksLeft, true, timestamp / 1000);
         return;
       }
 
-      // 5. RIVAL BEHAVIOR AI
+      // Rival AI
       if (!isEndless) {
-        // Rival speed adapts based on player progression to maintain high drama (Rubber-banding)
         let rivalTargetSpeed = 120 + rivalRacer.stats.speed * 8;
         if (state.boostActive) {
           rivalTargetSpeed += 40;
         }
-        // Rubberband scaling: if too far behind, boost rival. If too far ahead, drag.
+        // Rubberband logic
         const gap = state.rivalY - state.trackProgress;
         if (gap < -200) {
-          rivalTargetSpeed += 60; // catch up drone
-        } else if (gap > 400) {
-          rivalTargetSpeed -= 45; // wait for player
+          rivalTargetSpeed += 65;
+        } else if (gap > 420) {
+          rivalTargetSpeed -= 48;
         }
-
         state.rivalY += rivalTargetSpeed * dt * 2.2;
-        // Rival weaves slightly
-        state.rivalX += Math.sin(timestamp / 500) * 1.5;
-        // Clamp rival on road boundary
+        state.rivalX += Math.sin(timestamp / 450) * 1.5;
         state.rivalX = Math.max(-120, Math.min(120, state.rivalX));
       }
 
-      // 6. TIRE DRIFT MARKS GENERATION
-      // Spawn tyre trails continuously under player backwheels when steering
+      // Score / Marks addition
       if (isDrifting && !state.isCrashed) {
-        const offsetLeftX = state.playerX - 12;
-        const offsetRightX = state.playerX + 12;
-        const wheelY = canvas.height * 0.78; // back of car height
-
-        trails.current.push({
-          x1: offsetLeftX,
-          y1: wheelY,
-          x2: offsetLeftX - actualDx * 1.5,
-          y2: wheelY - 14,
-          alpha: 1.0,
-          color: playerRacer.trailColor,
-        });
-
-        trails.current.push({
-          x1: offsetRightX,
-          y1: wheelY,
-          x2: offsetRightX - actualDx * 1.5,
-          y2: wheelY - 14,
-          alpha: 1.0,
-          color: playerRacer.trailColor,
-        });
-
-        // Earn Marks Left during drifts!
         const marksEarned = Math.round(Math.abs(actualDx) * (state.boostActive ? 3.0 : 1.2));
         setMarksLeft((prev) => prev + marksEarned);
-
-        // Spawn beautiful drifting glow sparks!
-        spawnSpark(offsetLeftX, wheelY, playerRacer.signatureColor, 2);
-        spawnSpark(offsetRightX, wheelY, playerRacer.signatureColor, 2);
       }
-
-      // Boost particles
       if (state.boostActive && !state.isCrashed && Math.random() > 0.2) {
-        spawnSpark(state.playerX, canvas.height * 0.78, "#fffae0", 3);
-        setMarksLeft((prev) => prev + 2); // Boost passive markers
+        setMarksLeft((prev) => prev + 2);
       }
 
-      // 7. PARTICLES AND DEBRIS UPDATES
-      const particles = particlePool.current;
-      particles.forEach((p) => {
-        if (p.active) p.update();
-      });
-
-      // Update Drift trails (fade over time represent fading tire marks)
-      trails.current.forEach((t) => {
-        t.alpha -= 0.015; // fade rate
-      });
-      trails.current = trails.current.filter((t) => t.alpha > 0);
-
-      // Traffic calculations
+      // Traffic progression
       traffic.current.forEach((t) => {
-        // Traffic moves slower relative to screen
         t.y += (state.speed * 0.25 + t.speed) * dt * 2.2;
       });
+      // Clear out of screen
+      traffic.current = traffic.current.filter((t) => t.y < 800 + 200 && t.y > -1200);
 
-      // Clear traffic that went past the screen limit
-      traffic.current = traffic.current.filter((t) => t.y < canvas.height + 200 && t.y > -1200);
-
-      // Energy cells update
-      energyCells.current.forEach((cell) => {
-        cell.y += state.speed * dt * 2.2;
-        cell.pulse += dt * 4;
+      // Energy cells
+      energyCells.current.forEach((c) => {
+        c.y += state.speed * dt * 2.2;
+        c.pulse += dt * 4;
       });
-      energyCells.current = energyCells.current.filter((c) => c.y < canvas.height + 200 && c.active);
+      energyCells.current = energyCells.current.filter((c) => c.y < 800 + 200 && c.active);
 
-      // Speed lines update
-      speedLines.current.forEach((line) => {
-        line.y += (line.speed + state.speed * 0.15);
-        if (line.y > canvas.height + 100) {
-          line.y = -100;
-          line.x = Math.random() * (canvas.width - 100) + 50 - canvas.width / 2;
-        }
-      });
-
-      // 8. COLLISION CONTROLLERS
-      // Compute bounding shapes
+      // Collisions check
       const playerWidth = 26;
       const playerHeight = 44;
-      const playerWorldY = canvas.height * 0.75;
 
-      // Checks overlap with traffic obstacles
       traffic.current.forEach((veh) => {
-        const vehicleScreenY = veh.y; // traffic works on screen coordinates
         const dx = Math.abs(state.playerX - veh.x);
-        const dy = Math.abs(playerWorldY - vehicleScreenY);
+        const dy = Math.abs(playerWorldY - veh.y);
 
         if (dx < (playerWidth + veh.width) / 2 && dy < (playerHeight + veh.height) / 2 && !state.isCrashed) {
-          // Double impact armor or blast skills bypass collisions
           if (playerRacer.id === "kira" && state.boostActive) {
-            // KIRAS unique ability vaporizes cars
-            veh.y = 999999; // destroy
-            spawnSpark(veh.x, vehicleScreenY, "#ff007f", 12);
-            triggerScreenShake(8, 6);
-            setMarksLeft((prev) => prev + 250); // Massive destruction bonus
+            veh.y = 999999;
+            triggerSparks3D((veh.x / 150) * 22, 0.6, -((playerWorldY - veh.y) * 0.5), "#ff007f", 12);
+            triggerScreenShake(8, 8);
+            setMarksLeft((prev) => prev + 250);
           } else if (playerRacer.id === "mako" && state.boostActive) {
-            // MAKO armor shrugs off impact
-            veh.y = 999999; // destroy
-            spawnSpark(veh.x, vehicleScreenY, "#00ffcc", 8);
+            veh.y = 999999;
+            triggerSparks3D((veh.x / 150) * 22, 0.6, -((playerWorldY - veh.y) * 0.5), "#00ffcc", 8);
           } else {
-            // Normal Crash
+            // Wreck
             state.isCrashed = true;
-            state.crashTimer = 1.2; // locked
-            state.speed = 10; // reduce speed violently
+            state.crashTimer = 1.2;
+            state.speed = 10;
             audio.playCrash();
-            triggerScreenShake(24, 15);
-            // Spawn intensive orange/red sparks for total wreckage representation!
-            for (let s = 0; s < 25; s++) {
-              spawnSpark(state.playerX, playerWorldY, "#ff3c00", 25);
-            }
+            triggerScreenShake(20, 18);
+            
+            const px3D = (state.playerX / 150) * 22;
+            const pz3D = 0;
+            triggerSparks3D(px3D, 0.6, pz3D, "#ff3c00", 25);
+            triggerSparks3D(px3D, 0.6, pz3D, "#ffffff", 10);
+
             if (isEndless) {
-              // Endless mode ends upon a high-speed collision!
               onRaceComplete(marksLeft, false, timestamp / 1000);
             }
           }
         }
       });
 
-      // Check collision with outer boundaries (Walls)
+      // Boundaries collision
       const roadLimitX = 145;
       if (Math.abs(state.playerX) > roadLimitX - 10 && !state.isCrashed) {
         state.playerX = Math.sign(state.playerX) * (roadLimitX - 10);
-        spawnSpark(state.playerX, playerWorldY, "#ffffff", 2);
-        // Reduce speed slightly
+        const wallX3D = Math.sign(state.playerX) * 22;
+        triggerSparks3D(wallX3D, 0.2, 0, "#ffffff", 2);
         state.speed = Math.max(20, state.speed - 150 * dt);
-        setMarksLeft((prev) => Math.max(0, prev - 1)); // penalty for bad drift
+        setMarksLeft((prev) => Math.max(0, prev - 1));
       }
 
-      // Check pick-up collision for energy cells
+      // Energy cells pickup
       energyCells.current.forEach((cell) => {
         const dx = Math.abs(state.playerX - cell.x);
         const dy = Math.abs(playerWorldY - cell.y);
-        
-        // MAKO signature ability auto-magnetizes energy cells from further away
-        const collectionRadius = playerRacer.id === "mako" && state.boostActive ? 120 : 35;
+        const collectR = playerRacer.id === "mako" && state.boostActive ? 120 : 35;
 
-        if (dx < collectionRadius && dy < collectionRadius && cell.active) {
+        if (dx < collectR && dy < collectR && cell.active) {
           cell.active = false;
-          // Collect audio, boost charge & reward
           audio.playClick();
           setBoostLevel((prev) => Math.min(100, prev + 20));
           setMarksLeft((prev) => prev + 150);
+
+          const cellX3D = (cell.x / 150) * 22;
+          const cellZ3D = -((playerWorldY - cell.y) * 0.5);
+          triggerSparks3D(cellX3D, 0.6, cellZ3D, "#00ffcc", 10);
+        }
+      });
+
+      // --- THREE.JS GRAPHICS UPDATE ---
+      
+      // A. Player Ship placement
+      const playerX3D = (state.playerX / 150) * 22;
+      playerGroup.position.x = playerX3D;
+      
+      // Hover wave bobbing
+      if (state.isCrashed) {
+        playerGroup.position.y = 0.8 + Math.sin(timestamp / 40) * 0.4;
+        playerGroup.rotation.y += 8 * dt;
+        playerGroup.rotation.x += 4 * dt;
+        plumeL.scale.set(0.001, 0.001, 0.001);
+        plumeR.scale.set(0.001, 0.001, 0.001);
+      } else {
+        playerGroup.position.y = 0.65 + Math.sin(timestamp / 180) * 0.12;
+        playerGroup.rotation.y = 0;
+        playerGroup.rotation.x = 0;
+        playerGroup.rotation.z = -actualDx * 0.14; // tilt based on steering delta
+
+        // Engine flame scale pulsing
+        const plumeScale = 0.6 + (state.speed / 140) + (state.boostActive ? 1.0 : 0) + Math.sin(timestamp / 30) * 0.15;
+        plumeL.scale.set(1, 1, Math.max(0.1, plumeScale));
+        plumeR.scale.set(1, 1, Math.max(0.1, plumeScale));
+
+        // Spawn drifting sparks and trails
+        if (isDrifting) {
+          const wheelOffsetZ = 1.0;
+          spawnTrailSegment3D(playerX3D - 1.0, wheelOffsetZ);
+          spawnTrailSegment3D(playerX3D + 1.0, wheelOffsetZ);
           
-          // Generate visual aura explosion
-          for (let p = 0; p < 8; p++) {
-            spawnSpark(cell.x, cell.y, "#00ffcc", 8);
+          if (Math.random() > 0.3) {
+            triggerSparks3D(playerX3D - 1.0, 0.1, wheelOffsetZ, playerRacer.signatureColor, 2);
+            triggerSparks3D(playerX3D + 1.0, 0.1, wheelOffsetZ, playerRacer.signatureColor, 2);
+          }
+        }
+        if (state.boostActive && Math.random() > 0.4) {
+          triggerSparks3D(playerX3D, 0.1, 1.2, "#fffae0", 1);
+        }
+      }
+
+      // B. Road scrolling animation
+      const scrollSpeed = state.speed * dt * 1.1; // scaling factor
+      roadTiles.forEach((tile) => {
+        tile.position.z += scrollSpeed;
+        if (tile.position.z > roadLength) {
+          // Wrap tile to front
+          tile.position.z -= numRoadTiles * roadLength;
+        }
+      });
+
+      // C. Buildings scrolling animation
+      buildings.forEach((b) => {
+        b.mesh.position.z += scrollSpeed;
+        if (b.mesh.position.z > 80) {
+          b.mesh.position.z = -550 - Math.random() * 150;
+          const side = Math.random() > 0.5 ? 1 : -1;
+          b.mesh.position.x = side * (35 + Math.random() * 60);
+          b.initialX = b.mesh.position.x;
+        }
+        // Parallax horizontal drift relative to camera movement
+        b.mesh.position.x = b.initialX - (playerGroup.position.x * 0.15);
+      });
+
+      // D. Speed lines movement
+      speedLinesArr.forEach((line) => {
+        line.position.z += (35 + state.speed * 0.35) * dt * 20;
+        if (line.position.z > 20) {
+          line.position.z = -300;
+          line.position.x = (Math.random() - 0.5) * 80;
+          line.position.y = Math.random() * 12 + 0.5;
+        }
+      });
+
+      // E. Rival Ship placement
+      if (rivalGroup) {
+        const relRivalDist = state.rivalY - state.trackProgress;
+        const rivalZ3D = -(relRivalDist * 0.5);
+        rivalGroup.position.z = rivalZ3D;
+        rivalGroup.position.x = (state.rivalX / 150) * 22;
+        rivalGroup.rotation.y = Math.sin(timestamp / 500) * 0.05;
+
+        // Pulse rival plumes
+        const rivalPlumeScale = 0.8 + Math.sin(timestamp / 40) * 0.1;
+        rivalGroup.children.forEach((c) => {
+          if (c instanceof THREE.Mesh && c.geometry instanceof THREE.ConeGeometry && c.material instanceof THREE.MeshBasicMaterial) {
+            c.scale.set(1, 1, rivalPlumeScale);
+          }
+        });
+
+        // Hide if too far back
+        rivalGroup.visible = (rivalZ3D > -350 && rivalZ3D < 60);
+      }
+
+      // F. Render Traffic cars
+      const activeIds = new Set(traffic.current.map((t) => t.id));
+      
+      // Remove stale traffic
+      trafficMeshes.forEach((mesh, id) => {
+        if (!activeIds.has(id)) {
+          scene.remove(mesh);
+          // recursive geometry/material disposal
+          mesh.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+              child.geometry.dispose();
+              if (Array.isArray(child.material)) {
+                child.material.forEach((m) => m.dispose());
+              } else {
+                child.material.dispose();
+              }
+            }
+          });
+          trafficMeshes.delete(id);
+        }
+      });
+
+      // Update / Create traffic
+      traffic.current.forEach((veh) => {
+        const tX3D = (veh.x / 150) * 22;
+        const tZ3D = -((playerWorldY - veh.y) * 0.5);
+
+        let mesh = trafficMeshes.get(veh.id);
+        if (!mesh) {
+          mesh = createTrafficMesh(veh.type, veh.color);
+          trafficMeshes.set(veh.id, mesh);
+        }
+
+        mesh.position.set(tX3D, 0.6, tZ3D);
+        
+        // Bobbing floating cars
+        mesh.position.y = 0.55 + Math.sin((timestamp + veh.id * 100) / 150) * 0.08;
+        if (veh.type === "drone") {
+          mesh.children[0].rotation.y += 2 * dt;
+          mesh.children[1].rotation.z -= 1.5 * dt;
+        }
+      });
+
+      // G. Render Energy Pickup cells
+      const activeCellIds = new Set(energyCells.current.map((_, idx) => idx));
+      
+      energyMeshes.forEach((mesh, idx) => {
+        if (!activeCellIds.has(idx) || !energyCells.current[idx].active) {
+          scene.remove(mesh);
+          mesh.geometry.dispose();
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach((m) => m.dispose());
+          } else {
+            mesh.material.dispose();
+          }
+          energyMeshes.delete(idx);
+        }
+      });
+
+      energyCells.current.forEach((cell, idx) => {
+        if (!cell.active) return;
+        const cX3D = (cell.x / 150) * 22;
+        const cZ3D = -((playerWorldY - cell.y) * 0.5);
+
+        let mesh = energyMeshes.get(idx);
+        if (!mesh) {
+          mesh = new THREE.Mesh(pickupGeom, pickupMat);
+          scene.add(mesh);
+          energyMeshes.set(idx, mesh);
+        }
+
+        mesh.position.set(cX3D, 0.8 + Math.sin(cell.pulse) * 0.15, cZ3D);
+        mesh.rotation.y += 2.5 * dt;
+        mesh.rotation.x += 1.0 * dt;
+      });
+
+      // H. Animate 3D spark particles
+      sparksPool.forEach((spark) => {
+        if (spark.active) {
+          spark.mesh.position.x += spark.vx * dt;
+          spark.mesh.position.y += spark.vy * dt;
+          spark.mesh.position.z += (scrollSpeed / dt + spark.vz) * dt; // road speed + particle velocity
+
+          spark.vy -= 16 * dt; // gravity
+          spark.life -= dt;
+
+          const lifeRatio = spark.life / spark.maxLife;
+          spark.mesh.scale.set(lifeRatio, lifeRatio, lifeRatio);
+          (spark.mesh.material as THREE.MeshBasicMaterial).opacity = lifeRatio;
+
+          if (spark.life <= 0) {
+            spark.active = false;
+            spark.mesh.visible = false;
           }
         }
       });
 
-      // 9. RENDERING PRESETS
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // I. Animate Drift Trails scrolling
+      trailsPool.forEach((trail) => {
+        if (trail.active) {
+          trail.mesh.position.z += scrollSpeed;
+          trail.life -= 1.8 * dt; // fade rate
+          (trail.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, trail.life * 0.7);
 
-      // Draw Parallax / Space Background according to environment
-      ctx.save();
-      
-      // Dynamic camera offsets / Screen shake implementation
-      let shakeX = 0;
-      let shakeY = 0;
+          if (trail.life <= 0 || trail.mesh.position.z > 80) {
+            trail.active = false;
+            trail.mesh.visible = false;
+          }
+        }
+      });
+
+      // J. Chase Camera interpolation & shake
+      camera.position.x = playerGroup.position.x * 0.65;
+      camera.position.y = 5.2 + (state.boostActive ? 0.8 : 0);
+      camera.position.z = 12.0 + (state.boostActive ? 2.5 : 0);
+
+      // FOV transition for speed warp representation
+      const targetFOV = state.boostActive ? 74 : 60;
+      camera.fov += (targetFOV - camera.fov) * 0.08;
+
+      // Dynamic screen shake addition
       if (state.shakeDuration > 0) {
-        shakeX = (Math.random() - 0.5) * state.shakeIntensity;
-        shakeY = (Math.random() - 0.5) * state.shakeIntensity;
+        const curIntensity = state.shakeIntensity * 0.02;
+        camera.position.x += (Math.random() - 0.5) * curIntensity;
+        camera.position.y += (Math.random() - 0.5) * curIntensity;
+        camera.position.z += (Math.random() - 0.5) * curIntensity;
         state.shakeDuration--;
       }
-      ctx.translate(shakeX, shakeY);
+      camera.updateProjectionMatrix();
 
-      // Environment Renderers (Downtown / Highway / Rooftop Space backgrounds)
-      const cx = canvas.width / 2;
-      
-      // Cyber sky gradient
-      const skyGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      if (track.environmentType === "downtown") {
-        skyGrad.addColorStop(0, "#010105");
-        skyGrad.addColorStop(1, "#0a051d");
-      } else if (track.environmentType === "highway") {
-        skyGrad.addColorStop(0, "#00000a");
-        skyGrad.addColorStop(1, "#030e22");
-      } else {
-        skyGrad.addColorStop(0, "#0c010c");
-        skyGrad.addColorStop(1, "#010103");
-      }
-      ctx.fillStyle = skyGrad;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Look slightly in front of ship
+      const lookAtTarget = new THREE.Vector3(playerGroup.position.x * 0.35, 1.0, -12);
+      camera.lookAt(lookAtTarget);
 
-      // Background Grids / Parallax Pillars
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(0, 212, 255, 0.05)";
-      const gridYOffset = (state.trackProgress * 0.15) % 40;
-      for (let y = 0; y < canvas.height; y += 40) {
-        ctx.beginPath();
-        ctx.moveTo(0, y + gridYOffset);
-        ctx.lineTo(canvas.width, y + gridYOffset);
-        ctx.stroke();
-      }
+      // K. Render Scene Frame
+      renderer.render(scene, camera);
 
-      // Draw background space lines representing warp/hyper speed
-      speedLines.current.forEach((line) => {
-        ctx.strokeStyle = state.boostActive ? "rgba(255,0,127,0.12)" : "rgba(0, 212, 255, 0.08)";
-        ctx.lineWidth = state.boostActive ? 2 : 1;
-        ctx.beginPath();
-        const worldX = cx + line.x;
-        ctx.moveTo(worldX, line.y);
-        ctx.lineTo(worldX, line.y + line.length);
-        ctx.stroke();
-      });
-
-      // 10. DRAW ROADWAYS & BORDERS
-      // Perspective drawing: central clean tube
-      const roadWidth = 280;
-      
-      // Road Surface
-      ctx.fillStyle = "#0c0d16";
-      ctx.fillRect(cx - roadWidth / 2, 0, roadWidth, canvas.height);
-
-      // Road grid pattern (moving)
-      const dividerOffset = (state.trackProgress * 3.5) % 80;
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
-      ctx.lineWidth = 2;
-      for (let y = -80; y < canvas.height + 80; y += 80) {
-        ctx.beginPath();
-        ctx.moveTo(cx - roadWidth / 2, y + dividerOffset);
-        ctx.lineTo(cx + roadWidth / 2, y + dividerOffset);
-        ctx.stroke();
-      }
-
-      // Outer Neon Barriers (Glows!)
-      const barrierColor = track.environmentType === "rooftops" ? "#ff007f" : "#00ffcc";
-      ctx.strokeStyle = barrierColor;
-      ctx.lineWidth = 4;
-      ctx.shadowBlur = 12;
-      ctx.shadowColor = barrierColor;
-
-      // Draw Left Border Wall
-      ctx.beginPath();
-      ctx.moveTo(cx - roadWidth / 2, 0);
-      ctx.lineTo(cx - roadWidth / 2, canvas.height);
-      ctx.stroke();
-
-      // Draw Right Border Wall
-      ctx.beginPath();
-      ctx.moveTo(cx + roadWidth / 2, 0);
-      ctx.lineTo(cx + roadWidth / 2, canvas.height);
-      ctx.stroke();
-      ctx.shadowBlur = 0; // reset
-
-      // Draw Center white dashed lines
-      ctx.strokeStyle = "rgba(255, 212, 255, 0.45)";
-      ctx.lineWidth = 4;
-      ctx.setLineDash([25, 35]);
-      ctx.beginPath();
-      ctx.moveTo(cx, 0);
-      ctx.lineTo(cx, canvas.height);
-      ctx.stroke();
-      ctx.setLineDash([]); // Reset dash
-
-      // 11. DRAW DRIFT TRAILS ON ROAD
-      trails.current.forEach((trail) => {
-        ctx.save();
-        ctx.globalAlpha = trail.alpha;
-        ctx.lineWidth = 5;
-        ctx.strokeStyle = trail.color;
-        ctx.lineCap = "round";
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = trail.color;
-        ctx.beginPath();
-        ctx.moveTo(cx + trail.x1, trail.y1);
-        ctx.lineTo(cx + trail.x2, trail.y2);
-        ctx.stroke();
-        ctx.restore();
-      });
-
-      // 12. DRAW ENERGY PICKUP CELLS
-      energyCells.current.forEach((cell) => {
-        if (!cell.active) return;
-        ctx.save();
-        const sinSize = 10 + Math.sin(cell.pulse) * 3;
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = "#e2f413";
-        ctx.fillStyle = "#e2f413";
-        const cellScreenX = cx + cell.x;
-        
-        ctx.beginPath();
-        // Star diamond shape
-        ctx.moveTo(cellScreenX, cell.y - sinSize);
-        ctx.lineTo(cellScreenX + sinSize, cell.y);
-        ctx.lineTo(cellScreenX, cell.y + sinSize);
-        ctx.lineTo(cellScreenX - sinSize, cell.y);
-        ctx.closePath();
-        ctx.fill();
-
-        // Inner glowing core
-        ctx.fillStyle = "#ffffff";
-        ctx.beginPath();
-        ctx.arc(cellScreenX, cell.y, 4, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.restore();
-      });
-
-      // 13. DRAW RIVAL / COMPETITOR RACER (If within range)
-      if (!isEndless) {
-        const rivalScreenY = playerWorldY + (state.trackProgress - state.rivalY);
-        // Only render if physically visible on the active viewscreen
-        if (rivalScreenY > -100 && rivalScreenY < canvas.height + 100) {
-          ctx.save();
-          ctx.translate(cx + state.rivalX, rivalScreenY);
-          
-          // Draw simple sci-fi rival car body
-          ctx.fillStyle = rivalRacer.signatureColor;
-          // Removed glow for competitor vehicle to respect visual restraint
-          
-          // Outer shell
-          ctx.beginPath();
-          ctx.moveTo(-14, -20);
-          ctx.lineTo(14, -20);
-          ctx.lineTo(19, 15);
-          ctx.lineTo(13, 24);
-          ctx.lineTo(-13, 24);
-          ctx.lineTo(-19, 15);
-          ctx.closePath();
-          ctx.fill();
-
-          // Glass canopy overlay
-          ctx.fillStyle = "#0c0c16";
-          ctx.fillRect(-8, -10, 16, 12);
-          ctx.fillStyle = "#ff5599";
-          ctx.fillRect(-6, -8, 12, 4);
-
-          // Rival Hover Thrusters (Yellow pulsing)
-          ctx.fillStyle = "#e2f413";
-          ctx.fillRect(-17, 18, 5, 8);
-          ctx.fillRect(12, 18, 5, 8);
-
-          // Name Tag Banner label
-          ctx.restore();
-          ctx.save();
-          ctx.font = "bold 9px var(--font-orbitron)";
-          ctx.fillStyle = "#ffffff";
-          ctx.textAlign = "center";
-          ctx.fillStyle = rivalRacer.signatureColor;
-          ctx.fillText(`RIVAL: ${rivalRacer.alias}`, cx + state.rivalX, rivalScreenY - 32);
-          ctx.restore();
-        }
-      }
-
-      // 14. DRAW OBSTACLES / TRAFFIC
-      traffic.current.forEach((veh) => {
-        ctx.save();
-        ctx.translate(cx + veh.x, veh.y);
-
-        // Styling the vehicle bodies
-        ctx.fillStyle = veh.color;
-        // Removed glow shadow for obstacles to create crisp contrast
-
-        ctx.beginPath();
-        if (veh.type === "drone") {
-          // Sharp hex geometry
-          ctx.moveTo(0, -18);
-          ctx.lineTo(15, -6);
-          ctx.lineTo(15, 12);
-          ctx.lineTo(-15, 12);
-          ctx.lineTo(-15, -6);
-          ctx.closePath();
-          ctx.fill();
-
-          // Pulsating sensor light
-          ctx.fillStyle = "#ffffff";
-          ctx.beginPath();
-          ctx.arc(0, -4, 4, 0, Math.PI * 2);
-          ctx.fill();
-        } else {
-          // Standard civilian car/truck rectangular rounded shell
-          ctx.roundRect(-15, -24, 30, 48, 4);
-          ctx.fill();
-
-          // Black windows
-          ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-          ctx.roundRect(-11, -12, 22, 15, 2);
-          ctx.fill();
-
-          // Red taillights
-          ctx.fillStyle = "#ff0000";
-          ctx.fillRect(-12, 20, 5, 3);
-          ctx.fillRect(7, 20, 5, 3);
-        }
-
-        ctx.restore();
-      });
-
-      // 15. DRAW ACTIVE DRIVER (PLAYER)
-      if (!state.isCrashed) {
-        ctx.save();
-        ctx.translate(cx + state.playerX, playerWorldY);
-
-        // Steering dynamic rotation tilt
-        const targetRotation = Math.min(0.20, Math.max(-0.20, actualDx * 0.05));
-        ctx.rotate(targetRotation);
-
-        // Thruster sparks glow under engine
-        const thrusterColor = state.boostActive ? "#ffaa00" : playerRacer.signatureColor;
-        ctx.fillStyle = thrusterColor;
-        // Only glow when actually boosting or overcharged!
-        ctx.shadowBlur = state.boostActive ? 15 : 0;
-        ctx.shadowColor = thrusterColor;
-
-        // Draw Player Ship shell
-        ctx.beginPath();
-        // Sleek sharp forward nose
-        ctx.moveTo(0, -25);
-        // Front right wing
-        ctx.lineTo(16, -10);
-        // Back right stabilizer
-        ctx.lineTo(17, 20);
-        ctx.lineTo(12, 25);
-        // Custom exhaust gap
-        ctx.lineTo(5, 22);
-        ctx.lineTo(-5, 22);
-        ctx.lineTo(-12, 25);
-        // Back left stabilizer
-        ctx.lineTo(-17, 20);
-        // Front left wing
-        ctx.lineTo(-16, -10);
-        ctx.closePath();
-        ctx.fill();
-
-        // Canopy Glass glassmorphism style
-        ctx.fillStyle = "#020205";
-        ctx.beginPath();
-        ctx.moveTo(0, -12);
-        ctx.lineTo(8, -2);
-        ctx.lineTo(6, 12);
-        ctx.lineTo(-6, 12);
-        ctx.lineTo(-8, -2);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.fillStyle = playerRacer.signatureColor;
-        ctx.beginPath();
-        ctx.arc(0, 0, 3, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Thruster fire plumes
-        const plumeHeight = 10 + (state.speed / 10) + (state.boostActive ? 15 : 0);
-        ctx.strokeStyle = thrusterColor;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(-6, 22);
-        ctx.lineTo(-6, 22 + plumeHeight);
-        ctx.moveTo(6, 22);
-        ctx.lineTo(6, 22 + plumeHeight);
-        ctx.stroke();
-
-        ctx.restore();
-      } else {
-        // Crash state indicators: spin details
-        ctx.save();
-        ctx.translate(cx + state.playerX, playerWorldY);
-        ctx.rotate(timestamp / 60);
-        ctx.fillStyle = "#ef4444";
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = "#ff0000";
-        // Wreckage silhouette
-        ctx.fillRect(-15, -15, 30, 30);
-        ctx.restore();
-
-        // Floating crash tag
-        ctx.save();
-        ctx.font = "bold 13px var(--font-orbitron)";
-        ctx.fillStyle = "#ef4444";
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = "#ef4444";
-        ctx.textAlign = "center";
-        ctx.fillText("CRASH LOGGED!", cx + state.playerX, playerWorldY - 45);
-        ctx.restore();
-      }
-
-      // 16. DRAW PARTICLES
-      particles.forEach((p) => {
-        if (p.active) p.draw(ctx);
-      });
-
-      // 17. HUD DISPLAY OVERLAY (Drawn directly on canvas margins for high game look)
-      // Subtle top banner details
-      ctx.fillStyle = "rgba(5, 5, 12, 0.4)";
-      ctx.fillRect(0, 0, canvas.width, 42);
-
-      // Chapter Progression Line (Minimap representation)
-      if (!isEndless) {
-        ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
-        ctx.fillRect(15, 34, canvas.width - 30, 4);
-
-        // Player point tracker
-        const playerPct = Math.min(1.0, state.trackProgress / state.trackLength);
-        ctx.fillStyle = playerRacer.signatureColor;
-        ctx.fillRect(15, 34, (canvas.width - 30) * playerPct, 4);
-
-        // Rival point tracker
-        const rivalPct = Math.min(1.0, state.rivalY / state.trackLength);
-        ctx.fillStyle = "#e2f413";
-        ctx.beginPath();
-        ctx.arc(15 + (canvas.width - 30) * rivalPct, 36, 4, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      ctx.restore(); // finish rendering frame
-      
       animationFrameId.current = requestAnimationFrame(animationLoop);
     };
 
     animationFrameId.current = requestAnimationFrame(animationLoop);
 
+    // L. Resize Observer
+    const updateSize = () => {
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    };
+    const resizeObserver = new ResizeObserver(updateSize);
+    resizeObserver.observe(container);
+
+    // M. CLEANUP ON UNMOUNT
     return () => {
-      clearInterval(trafficInterval);
+      clearInterval(logicInterval);
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
       }
+      resizeObserver.disconnect();
+      audio.stopEngine();
+
+      // Dispose all active map meshes
+      trafficMeshes.forEach((mesh) => {
+        scene.remove(mesh);
+        mesh.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+            if (Array.isArray(child.material)) {
+              child.material.forEach((m) => m.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        });
+      });
+      energyMeshes.forEach((mesh) => {
+        scene.remove(mesh);
+        mesh.geometry.dispose();
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach((m) => m.dispose());
+        } else {
+          mesh.material.dispose();
+        }
+      });
+
+      // Dispose scene elements recursively
+      scene.traverse((object) => {
+        if (object instanceof THREE.Mesh) {
+          object.geometry.dispose();
+          if (Array.isArray(object.material)) {
+            object.material.forEach((mat) => mat.dispose());
+          } else {
+            object.material.dispose();
+          }
+        }
+      });
+
+      renderer.dispose();
     };
   }, [marksLeft, boostLevel, isEndless]);
 
@@ -969,7 +1147,7 @@ export default function GameCanvas({
     <div
       ref={containerRef}
       id="game-canvas-container"
-      className="relative w-full h-full aspect-auto flex flex-col justify-end overflow-hidden"
+      className="relative w-full h-full aspect-auto flex flex-col justify-end overflow-hidden bg-brand-midnight"
       onTouchStart={(e) => handlePointerDown(e.touches[0].clientX)}
       onTouchMove={(e) => handlePointerMove(e.touches[0].clientX)}
       onTouchEnd={handlePointerUp}
@@ -980,34 +1158,34 @@ export default function GameCanvas({
     >
       <canvas ref={canvasRef} className="absolute inset-0 block w-full h-full touch-none" />
 
-      {/* 2026 Sleek HUD Overlays -- Clean Glassmorphism Panels layered on top of canvas */}
+      {/* Futuristic HUD overlay panels layered on top of 3D Canvas */}
       <div className="absolute top-4 left-4 right-4 flex justify-between items-center pointer-events-none">
-        {/* Left Side: Score of Marks Left (Core Mechanic) */}
-        <div className="glass-panel px-4 py-2 rounded-xl flex flex-col pointer-events-auto border-cyan-500/10">
-          <span className="font-mono text-[9px] tracking-widest text-[#00D4FF]">MARKS LEFT</span>
-          <span className="font-orbitron font-extrabold text-2xl text-white tracking-wider glow-cyan-sm">
+        {/* Left Side: Racerz Points (augmented counter display) */}
+        <div className="glass-panel px-4 py-2.5 rounded-2xl flex flex-col pointer-events-auto border-cyan-500/10">
+          <span className="font-mono text-[9px] tracking-widest text-[#00D4FF] font-bold">RACERZ POINTS</span>
+          <span className="font-orbitron font-extrabold text-2xl text-white tracking-wider glow-cyan-sm mt-0.5">
             {marksLeft.toLocaleString()}
           </span>
         </div>
 
-        {/* Info panel in center showing lap or distance */}
-        <div className="glass-panel px-4 py-1.5 rounded-xl flex items-center gap-4 pointer-events-auto border-white/5 font-orbitron">
+        {/* Center Panel info details */}
+        <div className="glass-panel px-4 py-2 rounded-xl flex items-center gap-4 pointer-events-auto border-white/5 font-orbitron">
           {!isEndless ? (
             <div className="flex flex-col items-center">
-              <span className="text-[8px] text-gray-500 tracking-wider">LAP</span>
+              <span className="text-[8px] text-gray-500 tracking-wider">SECTOR LAP</span>
               <span className="text-sm font-bold text-white">
                 {lap} <span className="text-gray-500 text-[10px]">/ {track.laps}</span>
               </span>
             </div>
           ) : (
             <div className="flex flex-col items-center">
-              <span className="text-[8px] text-zinc-500 tracking-wider">ENDLESS RUN</span>
-              <span className="text-xs font-bold text-emerald-400">Survival</span>
+              <span className="text-[8px] text-[#ff007f] tracking-widest font-bold">ENDLESS SPEEDWAY</span>
+              <span className="text-[10px] font-bold text-emerald-400">SURVIVAL RUN</span>
             </div>
           )}
           <div className="h-6 w-[1px] bg-white/10" />
           <div className="flex flex-col items-center">
-            <span className="text-[8px] text-gray-500 tracking-wider">TIME</span>
+            <span className="text-[8px] text-gray-500 tracking-wider">RUN TIME</span>
             <span className="text-sm font-mono text-zinc-100">{raceTime.toFixed(1)}s</span>
           </div>
         </div>
@@ -1015,9 +1193,9 @@ export default function GameCanvas({
         {/* Exit Button */}
         <button
           onClick={handleKeyboardExit}
-          className="glass-panel px-3 py-2 rounded-xl text-xs font-orbitron text-zinc-400 hover:text-white pointer-events-auto transition-colors"
+          className="glass-panel px-4 py-2 rounded-xl text-[10px] font-orbitron font-bold text-zinc-400 hover:text-white pointer-events-auto transition-colors tracking-widest active:scale-95"
         >
-          QUIT
+          QUIT SECTOR
         </button>
       </div>
 
@@ -1027,15 +1205,15 @@ export default function GameCanvas({
         <div className="glass-panel px-4 py-2.5 rounded-2xl flex flex-col pointer-events-auto font-orbitron w-36 border-white/5">
           <div className="flex justify-between items-baseline">
             <span className="text-[9px] text-[#00D4FF]">SPEED</span>
-            <span className="text-[8px] text-zinc-500 font-mono">2026 TYPE</span>
+            <span className="text-[8px] text-zinc-500 font-mono">3D TELEM</span>
           </div>
           <div className="flex items-baseline gap-1 mt-1">
-            <span className={`text-4xl font-black tracking-tighter ${isBoosting ? "text-pink-500" : "text-white"}`}>
+            <span className={`text-4xl font-black tracking-tighter transition-colors ${isBoosting ? "text-pink-500" : "text-white"}`}>
               {speedKmh}
             </span>
             <span className="text-[10px] text-zinc-400">KM/H</span>
           </div>
-          {/* Subtle Speedometer linear graph */}
+          {/* Speedometer linear meter */}
           <div className="w-full bg-white/5 h-[3px] rounded-full mt-2 overflow-hidden">
             <div
               className={`h-full transition-all duration-75 ${isBoosting ? "bg-cyan-400" : "bg-[#ff007f]"}`}
@@ -1046,7 +1224,6 @@ export default function GameCanvas({
 
         {/* Large Boost Button overlaying right quadrant */}
         <div className="flex flex-col items-center gap-2 pointer-events-auto">
-          {/* Circular Boost button */}
           <button
             onTouchStart={(e) => {
               e.preventDefault();
@@ -1055,7 +1232,7 @@ export default function GameCanvas({
             onClick={triggerBoost}
             className={`w-20 h-20 rounded-full flex flex-col justify-center items-center border transition-all pointer-events-auto ${
               boostLevel >= 25
-                ? "bg-gradient-to-tr from-cyan-600/60 to-pink-600/60 border-cyan-400 animate-pulse active:scale-95 shadow-[0_0_20px_rgba(0,212,255,0.4)]"
+                ? "bg-gradient-to-tr from-cyan-600/60 to-pink-600/60 border-cyan-400 active:scale-95 shadow-[0_0_20px_rgba(0,212,255,0.4)]"
                 : "bg-white/5 border-white/10 opacity-40 cursor-not-allowed"
             }`}
           >
@@ -1065,9 +1242,8 @@ export default function GameCanvas({
             </span>
           </button>
 
-          {/* Boost level sub-bar */}
+          {/* Boost level sub-bar split indicators */}
           <div className="w-24 bg-white/5 h-1.5 rounded-full overflow-hidden border border-white/5 flex">
-            {/* Split bars of 25% for visual rhythm */}
             {[0, 1, 2, 3].map((idx) => {
               const chargeLevel = Math.max(0, Math.min(25, boostLevel - idx * 25));
               const pct = (chargeLevel / 25) * 100;
@@ -1084,10 +1260,10 @@ export default function GameCanvas({
         </div>
       </div>
 
-      {/* Screen Controls Hint Overlay for first 3 seconds */}
+      {/* Screen Controls Hint Overlay */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none text-center flex flex-col gap-1 items-center animate-fade-out font-orbitron">
-        <span className="text-[10px] text-[#00D4FF] tracking-widest">TOUCH DRAG LEFT & RIGHT</span>
-        <span className="text-[8px] text-gray-500 uppercase tracking-widest">Or Use Keyboard Arrow Keys</span>
+        <span className="text-[10px] text-[#00D4FF] tracking-widest font-black">DRAG MOUSE / SWIPE TO STEER</span>
+        <span className="text-[8px] text-gray-500 uppercase tracking-widest">Or Use Arrow Keys / AD</span>
       </div>
     </div>
   );

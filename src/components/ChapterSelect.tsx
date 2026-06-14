@@ -34,29 +34,35 @@ export default function ChapterSelect({
   };
 
   return (
-    <div className="w-full h-full text-zinc-100 flex flex-col justify-between p-6 sm:p-10 select-none bg-[#050508] relative overflow-hidden custom-scrollbar overflow-y-auto">
+    <div 
+      className="w-full h-full text-zinc-100 flex flex-col justify-between p-6 sm:p-10 select-none bg-cover bg-center bg-no-repeat relative overflow-hidden custom-scrollbar overflow-y-auto"
+      style={{ backgroundImage: 'url("/images/character_shop.jpg")' }}
+    >
+      {/* Dark showroom overlay */}
+      <div className="absolute inset-0 bg-[#050508]/92 backdrop-blur-[5px] pointer-events-none" />
+
       {/* Header tool bar */}
       <div className="w-full max-w-5xl mx-auto flex justify-between items-center z-10">
         <button
           onClick={() => { audio.playClick(); onBack(); }}
-          className="px-4 py-2 bg-white/[0.03] border border-white/5 rounded-xl text-xs font-sans text-zinc-400 hover:text-white transition-colors flex items-center gap-2"
+          className="px-4 py-2 bg-white/[0.03] border border-white/5 rounded-xl text-xs font-sans text-zinc-400 hover:text-white transition-colors flex items-center gap-2 cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Lobby</span>
         </button>
-        <span className="font-mono text-zinc-500 text-xs uppercase tracking-wider">Sectors</span>
+        <span className="font-mono text-zinc-500 text-xs uppercase tracking-wider font-bold">SECTORS REGISTRY</span>
       </div>
 
       {/* Chapter Overview Text block */}
       <div className="w-full max-w-5xl mx-auto text-left mt-8 mb-8 z-10">
-        <span className="font-mono text-[9px] text-[#ff007f] font-bold tracking-widest uppercase">
-          Tokyo Overruns
+        <span className="font-mono text-[9px] text-[#ff007f] font-black tracking-widest uppercase border border-[#ff007f]/30 px-2.5 py-0.5 rounded bg-[#ff007f]/10 shadow-[0_0_12px_rgba(255,0,127,0.15)]">
+          TOKYO OVERRUNS
         </span>
-        <h2 className="font-sans font-medium text-3xl text-white mt-1 leading-tight">
-          Chapter 1: The city was empty.
+        <h2 className="font-orbitron font-black text-3xl text-white mt-3 leading-tight uppercase tracking-tight">
+          CHAPTER 1: THE CITY WAS EMPTY
         </h2>
-        <p className="text-sm text-zinc-400 font-sans font-light mt-1 max-w-md leading-relaxed">
-          The curfew starts at ten. The roads are clear, but you aren't the only one who didn't go home. Choose a sector.
+        <p className="text-xs text-zinc-400 font-sans font-light mt-1.5 max-w-md leading-relaxed">
+          The curfew starts at ten. The roads are clear, but you aren't the only one who didn't go home. Choose an active sector below to log a trace.
         </p>
       </div>
 
@@ -149,7 +155,7 @@ export default function ChapterSelect({
                         e.stopPropagation();
                         handleRaceSelection(race, true);
                       }}
-                      className="px-5 py-2 bg-white text-[#050508] font-sans font-medium text-xs rounded-xl flex items-center justify-center gap-1.5 transition-transform hover:scale-102"
+                      className="px-5 py-2.5 bg-[#00D4FF] hover:bg-cyan-400 text-zinc-950 font-orbitron font-bold text-[10px] tracking-widest rounded-xl flex items-center justify-center gap-1.5 transition-transform hover:scale-105 active:scale-95 shadow-[0_0_15px_rgba(0,212,255,0.3)] cursor-pointer"
                     >
                       <Play className="w-3 h-3 fill-current" />
                       <span>Drive</span>
